@@ -185,6 +185,7 @@ class VideoMaskFormer(nn.Module):
         images = ImageList.from_tensors(images, self.size_divisibility)
 
         features = self.backbone(images.tensor)
+
         outputs = self.sem_seg_head(features)
 
         if self.training:
@@ -206,6 +207,7 @@ class VideoMaskFormer(nn.Module):
             mask_pred_results = outputs["pred_masks"]
 
             mask_cls_result = mask_cls_results[0]
+
             # upsample masks
             mask_pred_result = retry_if_cuda_oom(F.interpolate)(
                 mask_pred_results[0],
@@ -254,14 +256,34 @@ class VideoMaskFormer(nn.Module):
 
     def inference_video(self, pred_cls, pred_masks, img_size, output_height, output_width):
         if len(pred_cls) > 0:
-            scores = F.softmax(pred_cls, dim=-1)[:, :-1]
-            labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)
+            pred_scores = F.softmax(pred_cls, dim=-1)[:, :-1]  # [100, 40]
+            # scores = F.softmax(pred_cls, dim=-1)[:, :-1]  # [100, 40]
+            '''
+            For segmentation quality compution, only compute instance pixel score of each object sequences over
+            semseg masks of all frames. 
+            '''
+            PIXEL_SCORE_TH = 0.3
+
+            pred_logits = torch.cat([_.sigmoid() for _ in torch.split(pred_masks, 1, dim=1)], dim=1)  # list[[N, H, W]]
+
+            # high confidence mask (hcm)
+            inst_hcm_crs_frms = (pred_logits > PIXEL_SCORE_TH).to(dtype=torch.bool) # [num_query, num_frame, H, W]
+
+            # high confidence value (hcv)
+            inst_hcv_crs_frms = torch.sum(pred_logits * inst_hcm_crs_frms, dim=[2, 3]).to(dtype=torch.float32)  # [num_query, num_frame]
+            inst_hcm_num_crs_frms = torch.clamp(torch.sum(inst_hcm_crs_frms, dim=[2, 3]).to(dtype=torch.float32), min=1e-6)  # [num_query, num_frame]
+
+            instance_pixel_scores = torch.mean(inst_hcv_crs_frms / inst_hcm_num_crs_frms, dim=1)  # [num_query, 1]
+            instance_pixel_scores = torch.stack([instance_pixel_scores]*self.sem_seg_head.num_classes, dim=1).squeeze(-1)
+            scores = torch.pow(pred_scores * instance_pixel_scores, 1/2)
+
+            labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)  #([4000,])
+
             # keep top-10 predictions
             scores_per_image, topk_indices = scores.flatten(0, 1).topk(10, sorted=False)
             labels_per_image = labels[topk_indices]
             topk_indices = topk_indices // self.sem_seg_head.num_classes
-            pred_masks = pred_masks[topk_indices]
-
+            pred_masks = pred_masks[topk_indices]  # [10, 36, 360, 640]
             pred_masks = pred_masks[:, :, : img_size[0], : img_size[1]]
             pred_masks = F.interpolate(
                 pred_masks, size=(output_height, output_width), mode="bilinear", align_corners=False
