@@ -3,6 +3,9 @@ import logging
 import math
 from typing import Tuple
 
+import numpy as np
+import cv2
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -257,27 +260,27 @@ class VideoMaskFormer(nn.Module):
     def inference_video(self, pred_cls, pred_masks, img_size, output_height, output_width):
         if len(pred_cls) > 0:
             pred_scores = F.softmax(pred_cls, dim=-1)[:, :-1]  # [100, 40]
-            # scores = F.softmax(pred_cls, dim=-1)[:, :-1]  # [100, 40]
+            labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)  #([4000,])
+
             '''
             For segmentation quality compution, only compute instance pixel score of each object sequences over
             semseg masks of all frames. 
             '''
-            PIXEL_SCORE_TH = 0.3
+            PIXEL_LOGITS_SCORE_TH = 0.2
 
-            pred_logits = torch.cat([_.sigmoid() for _ in torch.split(pred_masks, 1, dim=1)], dim=1)  # list[[N, H, W]]
+            mask_logits = torch.cat([_.sigmoid() for _ in torch.split(pred_masks, 1, dim=1)], dim=1)  # list[[N, H, W]]
+            mask_logits = find_fg_bboxes(mask_logits, PIXEL_LOGITS_SCORE_TH)
 
             # high confidence mask (hcm)
-            inst_hcm_crs_frms = (pred_logits > PIXEL_SCORE_TH).to(dtype=torch.bool) # [num_query, num_frame, H, W]
+            inst_hcm_crs_frms = (mask_logits > PIXEL_LOGITS_SCORE_TH).to(dtype=torch.bool) # [num_query, num_frame, H, W]
 
             # high confidence value (hcv)
-            inst_hcv_crs_frms = torch.sum(pred_logits * inst_hcm_crs_frms, dim=[2, 3]).to(dtype=torch.float32)  # [num_query, num_frame]
+            inst_hcv_crs_frms = torch.sum(mask_logits * inst_hcm_crs_frms, dim=[2, 3]).to(dtype=torch.float32)  # [num_query, num_frame]
             inst_hcm_num_crs_frms = torch.clamp(torch.sum(inst_hcm_crs_frms, dim=[2, 3]).to(dtype=torch.float32), min=1e-6)  # [num_query, num_frame]
 
             instance_pixel_scores = torch.mean(inst_hcv_crs_frms / inst_hcm_num_crs_frms, dim=1)  # [num_query, 1]
             instance_pixel_scores = torch.stack([instance_pixel_scores]*self.sem_seg_head.num_classes, dim=1).squeeze(-1)
             scores = torch.pow(pred_scores * instance_pixel_scores, 1/2)
-
-            labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)  #([4000,])
 
             # keep top-10 predictions
             scores_per_image, topk_indices = scores.flatten(0, 1).topk(10, sorted=False)
@@ -289,7 +292,7 @@ class VideoMaskFormer(nn.Module):
                 pred_masks, size=(output_height, output_width), mode="bilinear", align_corners=False
             )
 
-            masks = pred_masks > 0.
+            masks = pred_masks > 0  # default 0
 
             out_scores = scores_per_image.tolist()
             out_labels = labels_per_image.tolist()
@@ -307,3 +310,44 @@ class VideoMaskFormer(nn.Module):
         }
 
         return video_output
+
+def find_fg_bboxes(logits, thr):
+    '''
+    To filter out small areas according to the mask logits threshold, areas with logits bigger than thr
+    are first picked out, then the aeras less than AREA_THR pixels are abandoned.
+    '''
+    thr = 0.1
+    N, C, H, W = logits.size()
+    binary_masks = (logits > thr).cpu().numpy().astype(int) * 255
+
+    AREA_THR = 16
+    for seq_id in range(N):
+        for frame_id in range(C):
+            binary_mask = binary_masks[seq_id][frame_id]
+            _, labels, stats, centrs = cv2.connectedComponentsWithStats(binary_mask.astype(np.uint8))
+
+            bboxes = stats[stats[:, 4].argsort()]
+            if bboxes.shape[0] == 1:
+                # print('no prediction satisfied !')
+                return logits
+
+            if bboxes.shape[0] > 1:
+                if bboxes[-1][2] == W and bboxes[-1][2] == W:
+                    bboxes = bboxes[:-1, :]
+
+                areas = bboxes[:, -1]
+                keep_ind = np.where(areas >= AREA_THR)[0]
+                bboxes = bboxes[keep_ind, :4]
+
+                for ind in range(bboxes.shape[0]):
+                    x, y, w, h = bboxes[ind, :]
+                    tmp = np.ones((h, w))
+                    binary_mask[y:y+h, x:x+w] = binary_mask[y:y+h, x:x+w] * tmp
+
+                binary_masks[seq_id][frame_id] = binary_mask
+
+    binary_tensor = torch.from_numpy(binary_masks).cuda(device=logits.device)
+
+    logits *= binary_tensor
+
+    return logits
