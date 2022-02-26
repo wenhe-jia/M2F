@@ -3,17 +3,17 @@ MODEL:
     FREEZE_AT: 0
     NAME: "build_resnet_backbone"
   WEIGHTS: "detectron2://ImageNetPretrained/torchvision/R-50.pkl"
-  PIXEL_MEAN: [123.675, 116.280, 103.530]
-  PIXEL_STD: [58.395, 57.120, 57.375]
+  PIXEL_MEAN: [ 123.675, 116.280, 103.530 ]
+  PIXEL_STD: [ 58.395, 57.120, 57.375 ]
   MASK_ON: True
   RESNETS:
     DEPTH: 50
     STEM_TYPE: "basic"  # not used
     STEM_OUT_CHANNELS: 64
     STRIDE_IN_1X1: False
-    OUT_FEATURES: ["res2", "res3", "res4", "res5"]
+    OUT_FEATURES: [ "res2", "res3", "res4", "res5" ]
     # NORM: "SyncBN"
-    RES5_MULTI_GRID: [1, 1, 1]  # not used
+    RES5_MULTI_GRID: [ 1, 1, 1 ]  # not used
 DATASETS:
   TRAIN: ("ytvis_2021_train",)
   TEST: ("ytvis_2021_val",)
@@ -37,7 +37,7 @@ SOLVER:
 INPUT:
   MIN_SIZE_TRAIN_SAMPLING: "choice_by_clip"
   RANDOM_FLIP: "flip_by_clip"
-  AUGMENTATIONS: []
+  AUGMENTATIONS: [ ]
   MIN_SIZE_TRAIN: (360, 480)
   MIN_SIZE_TEST: 360
   CROP:
@@ -47,6 +47,11 @@ INPUT:
   FORMAT: "RGB"
 TEST:
   EVAL_PERIOD: 0
+  AUG:
+    ENABLED: True
+    MIN_SIZES: [ 360 ]            #240,360,480,720
+    MAX_SIZE: 2048
+    FLIP: True
 DATALOADER:
   FILTER_EMPTY_ANNOTATIONS: False
   NUM_WORKERS: 4
