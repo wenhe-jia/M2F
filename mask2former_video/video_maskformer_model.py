@@ -271,7 +271,7 @@ class VideoMaskFormer(nn.Module):
 
         return gt_instances
 
-    def inference_video(self, pred_cls, pred_masks, img_size, output_height, output_width, use_TTA):
+    def inference_video(self, pred_cls, pred_masks, img_size, output_height, output_width, use_TTA=False):
         if len(pred_cls) > 0:
             # re-scoring
             scores = self.re_scoring(pred_cls, pred_masks)
