@@ -261,9 +261,13 @@ def instances_to_coco_json_video(inputs, outputs):
         instances (Instances):
         video_id (int): the image id
 
+        inputs: dataloader output
+        outputs: {'img_size', 'pred_scores', 'pred_labels', 'pred_masks'}
+
     Returns:
         list[dict]: list of json annotations in COCO format.
     """
+
     assert len(inputs) == 1, "More than one inputs are loaded for inference!"
 
     video_id = inputs[0]["video_id"]

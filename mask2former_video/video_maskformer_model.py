@@ -259,29 +259,10 @@ class VideoMaskFormer(nn.Module):
 
     def inference_video(self, pred_cls, pred_masks, img_size, output_height, output_width):
         if len(pred_cls) > 0:
-            pred_scores = F.softmax(pred_cls, dim=-1)[:, :-1]  # [100, 40]
+            # re-scoring
+            scores = self.re_scoring(pred_cls, pred_masks)
+
             labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)  #([4000,])
-
-            '''
-            For segmentation quality compution, only compute instance pixel score of each object sequences over
-            semseg masks of all frames. 
-            '''
-            PIXEL_LOGITS_SCORE_TH = 0.2
-
-            mask_logits = torch.cat([_.sigmoid() for _ in torch.split(pred_masks, 1, dim=1)], dim=1)  # list[[N, H, W]]
-            mask_logits = find_fg_bboxes(mask_logits, PIXEL_LOGITS_SCORE_TH)
-
-            # high confidence mask (hcm)
-            inst_hcm_crs_frms = (mask_logits > PIXEL_LOGITS_SCORE_TH).to(dtype=torch.bool) # [num_query, num_frame, H, W]
-
-            # high confidence value (hcv)
-            inst_hcv_crs_frms = torch.sum(mask_logits * inst_hcm_crs_frms, dim=[2, 3]).to(dtype=torch.float32)  # [num_query, num_frame]
-            inst_hcm_num_crs_frms = torch.clamp(torch.sum(inst_hcm_crs_frms, dim=[2, 3]).to(dtype=torch.float32), min=1e-6)  # [num_query, num_frame]
-
-            instance_pixel_scores = torch.mean(inst_hcv_crs_frms / inst_hcm_num_crs_frms, dim=1)  # [num_query, 1]
-            instance_pixel_scores = torch.stack([instance_pixel_scores]*self.sem_seg_head.num_classes, dim=1).squeeze(-1)
-            scores = torch.pow(pred_scores * instance_pixel_scores, 1/2)
-
             # keep top-10 predictions
             scores_per_image, topk_indices = scores.flatten(0, 1).topk(10, sorted=False)
             labels_per_image = labels[topk_indices]
@@ -311,6 +292,31 @@ class VideoMaskFormer(nn.Module):
 
         return video_output
 
+    def re_scoring(self, pred_cls, pred_masks):
+        '''
+            For segmentation quality compution, only compute instance pixel score of each object sequences over
+            semseg masks of all frames.
+        '''
+        PIXEL_LOGITS_SCORE_TH = 0.2
+
+        pred_logits = F.softmax(pred_cls, dim=-1)[:, :-1]  # [100, 40]
+        mask_logits = torch.cat([_.sigmoid() for _ in torch.split(pred_masks, 1, dim=1)], dim=1)  # list[[N, H, W]]
+        # mask_logits = find_fg_bboxes(mask_logits, pred_masks)
+
+        # high confidence mask (hcm)
+        inst_hcm_crs_frms = (mask_logits > PIXEL_LOGITS_SCORE_TH).to(dtype=torch.bool)  # [num_query, num_frame, H, W]
+
+        # high confidence value (hcv)
+        inst_hcv_crs_frms = torch.sum(mask_logits * inst_hcm_crs_frms, dim=[2, 3]).to(
+            dtype=torch.float32)  # [num_query, num_frame]
+        inst_hcm_num_crs_frms = torch.clamp(torch.sum(inst_hcm_crs_frms, dim=[2, 3]).to(dtype=torch.float32), min=1e-6)  # [num_query, num_frame]
+
+        instance_pixel_scores = torch.mean(inst_hcv_crs_frms / inst_hcm_num_crs_frms, dim=1)  # [num_query, 1]
+        instance_pixel_scores = torch.stack([instance_pixel_scores] * self.sem_seg_head.num_classes, dim=1).squeeze(-1)
+
+        scores = torch.pow(pred_logits * instance_pixel_scores, 1 / 2)
+        return scores
+
 def find_fg_bboxes(logits, thr):
     '''
     To filter out small areas according to the mask logits threshold, areas with logits bigger than thr
@@ -318,12 +324,19 @@ def find_fg_bboxes(logits, thr):
     '''
     thr = 0.1
     N, C, H, W = logits.size()
-    binary_masks = (logits > thr).cpu().numpy().astype(int) * 255
+    binary_masks = (logits > thr).cpu().numpy().astype(int)
 
     AREA_THR = 16
     for seq_id in range(N):
         for frame_id in range(C):
             binary_mask = binary_masks[seq_id][frame_id]
+
+            inds = torch.nonzero(binary_mask, as_tuple=True)
+            ymin = int(torch.min(inds[0]))
+            ymax = int(torch.max(inds[0]))
+            xmin = int(torch.min(inds[1]))
+            xmax = int(torch.max(inds[1]))
+
             _, labels, stats, centrs = cv2.connectedComponentsWithStats(binary_mask.astype(np.uint8))
 
             bboxes = stats[stats[:, 4].argsort()]
