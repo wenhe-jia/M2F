@@ -6,6 +6,7 @@ from .config import add_maskformer2_video_config
 
 # models
 from .video_maskformer_model import VideoMaskFormer
+from .test_time_augmentation_video import SemanticSegmentorWithTTA_video
 
 # video
 from .data_video import (

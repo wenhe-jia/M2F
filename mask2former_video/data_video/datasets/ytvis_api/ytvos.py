@@ -232,7 +232,7 @@ class YTVOS:
                'Results do not correspond to current coco set'
         if 'segmentations' in anns[0]:
             res.dataset['categories'] = copy.deepcopy(self.dataset['categories'])
-            for id, ann in enumerate(anns):
+            for id, ann in enumerate(anns):  # ann -> predictions of single video
                 ann['areas'] = []
                 if not 'bboxes' in ann:
                     ann['bboxes'] = []
