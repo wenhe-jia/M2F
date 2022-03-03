@@ -3,6 +3,7 @@ import copy
 import logging
 import math
 import sys
+import gc
 from typing import Tuple
 
 import torch
@@ -223,13 +224,18 @@ class VideoMaskFormer(nn.Module):
                 align_corners=False,
             )
 
-            del outputs
+            # del outputs
+            # del features
+            torch.cuda.empty_cache()
+            gc.collect()
 
             input_per_image = batched_inputs[0]
             image_size = images.image_sizes[0]  # image size without padding after data augmentation
 
             height = input_per_image.get("height", image_size[0])  # raw image size before data augmentation
             width = input_per_image.get("width", image_size[1])
+            del images
+            gc.collect()
 
             return retry_if_cuda_oom(self.inference_video)(mask_cls_result, mask_pred_result, image_size, height, width,
                                                            use_TTA)
@@ -282,6 +288,8 @@ class VideoMaskFormer(nn.Module):
             else:
                 masks = pred_masks > 0.
 
+            del pred_masks
+
             out_scores = scores_per_image.tolist()
             out_labels = labels_per_image.tolist()
             out_masks = [m for m in masks.cpu()]
@@ -292,9 +300,9 @@ class VideoMaskFormer(nn.Module):
 
         video_output = {
             "image_size": (output_height, output_width),
-            "pred_scores": out_scores,
-            "pred_labels": out_labels,
-            "pred_masks": out_masks,
+            "pred_scores": out_scores,  # [float x 10]
+            "pred_labels": out_labels,  # [int x 10]
+            "pred_masks": out_masks,  # [(f, H, W) x 10]
         }
 
         return video_output

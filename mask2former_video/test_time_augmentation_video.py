@@ -1,17 +1,23 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 import copy
+import gc
 import logging
+import os.path
 import sys
+import time
 from itertools import count
 
+import cv2
 import numpy as np
 import torch
 from fvcore.transforms import HFlipTransform
 from torch import nn
 from torch.nn.parallel import DistributedDataParallel
+from pycocotools import mask as maskUtils
 
 from detectron2.data.detection_utils import read_image
 from .modeling.test_time_augmentation import DatasetMapperTTA_video
+from .utils.memory import retry_if_cuda_oom
 
 __all__ = [
     "SemanticSegmentorWithTTA_video",
@@ -52,23 +58,9 @@ class SemanticSegmentorWithTTA_video(nn.Module):
         Same input/output format as :meth:`SemanticSegmentor.forward`
         """
 
-        def _maybe_read_image(dataset_dict):
-            ret = copy.copy(dataset_dict)
-            if "image" not in ret:
-                image = read_image(ret.pop("file_name"), self.model.input_format)
-                image = torch.from_numpy(np.ascontiguousarray(image.transpose(2, 0, 1)))  # CHW
-                ret["image"] = image
-            if "height" not in ret and "width" not in ret:
-                ret["height"] = image.shape[1]
-                ret["width"] = image.shape[2]
-            return ret
+        # x={'height': 720, 'width': 1280, 'length': 36, 'video_id': 1, 'image': [tensor,...],'instances': [], 'file_names': []}
+        result = retry_if_cuda_oom(self._inference_one_video)(batched_inputs[0])
 
-        processed_results = []
-        for x in batched_inputs:
-            x = _maybe_read_image(x)
-            # x={'height': 720, 'width': 1280, 'length': 36, 'video_id': 1, 'image': [tensor,...],'instances': [], 'file_names': []}
-            result = self._inference_one_video(x)
-            processed_results.append(result)
         return result
 
     def _flip_final_predictions(self, pred):
@@ -90,6 +82,7 @@ class SemanticSegmentorWithTTA_video(nn.Module):
         Returns:
             dict: one output dict
         """
+
         orig_shape = (input["height"], input["width"])
         augmented_inputs, tfms = self._get_augmented_inputs(input)
 
@@ -97,10 +90,10 @@ class SemanticSegmentorWithTTA_video(nn.Module):
         final_scores = None
         final_labels = None
         count_predictions = 0
-        for input, tfm in zip(augmented_inputs, tfms):  # one input for one video
+        for inputt, tfm in zip(augmented_inputs, tfms):  # one input for one video
             count_predictions += 1
             with torch.no_grad():
-                out = self.model([input], use_TTA=True)
+                out = self.model([inputt], use_TTA=True)
                 if final_predictions is None:
                     if any(isinstance(t, HFlipTransform) for t in tfm.transforms):
                         final_predictions = self._flip_final_predictions(out.pop("pred_masks"))
@@ -113,22 +106,41 @@ class SemanticSegmentorWithTTA_video(nn.Module):
                         pred_tmp = self._flip_final_predictions(out.pop("pred_masks"))
                     else:
                         pred_tmp = out.pop("pred_masks")
-                    # for i, (ms1, ms2) in enumerate(zip(final_predictions, pred_tmp)):
-                    #     final_predictions[i] = ms1 + ms2
                     final_predictions += pred_tmp
                     final_labels += out.pop("pred_labels")
                     final_scores += out.pop("pred_scores")
+        del augmented_inputs
+        gc.collect()
 
-                # final_labels.append(out.pop("pred_labels"))
-                # final_scores.append(out.pop("pred_scores"))
-        # for i, pr in enumerate(final_predictions):
-        #     final_predictions[i] = (pr / count_predictions) > 0
+        # attribute the result by category
+        cat_dict = {}
+        for l_ind, l in enumerate(final_labels):
+            if l not in cat_dict.keys():
+                cat_dict[l] = {'masks': [], 'scores': []}
+            cat_dict[l]['masks'].append(final_predictions[l_ind])
+            cat_dict[l]['scores'].append(final_scores[l_ind])
 
-        # final_scores = list(np.max(np.asarray(final_scores), 0))
+        del final_predictions
+        gc.collect()
 
-        # final_labels = final_labels[0]
-        # print(len(final_labels), len(final_scores), len(final_predictions))
-        # sys.exit()
+        # use nms to merge the resuts
+        cat_dict = self.mask_NMS(cat_dict, IOU_thr=0.65)
+
+        # transform to output list
+        final_scores = []
+        final_predictions = []
+        final_labels = []
+        for k, v in cat_dict.items():
+            for _ in range(len(v['scores'])):
+                final_labels.append(k)
+            final_scores += list(v.pop('scores'))
+            final_predictions += list(v.pop('masks'))
+
+        del cat_dict
+        gc.collect()
+
+        final_predictions = [pre > 0 for pre in final_predictions]
+
         return {"image_size": orig_shape,
                 "pred_scores": final_scores,
                 "pred_labels": final_labels,
@@ -140,3 +152,111 @@ class SemanticSegmentorWithTTA_video(nn.Module):
         augmented_inputs = self.tta_mapper(input)
         tfms = [x.pop("transforms") for x in augmented_inputs]
         return augmented_inputs, tfms
+
+    def _iou_seq(self, d_seq, g_seq):
+        '''
+
+        :param d_seq: RLE object
+        :param g_seq: RLE object
+        :return:
+        '''
+        i = .0
+        u = .0
+        for d, g in zip(d_seq, g_seq):
+            if d and g:
+                i += maskUtils.area(maskUtils.merge([d, g], True))
+                u += maskUtils.area(maskUtils.merge([d, g], False))
+            elif not d and g:
+                u += maskUtils.area(g)
+            elif d and not g:
+                u += maskUtils.area(d)
+        # if not u > .0:
+        #     print("Mask sizes in video  and category  may not match!")
+        iou = i / u if u > .0 else .0
+        return iou
+
+    def mask_merge(self, masks_in):
+        '''
+
+        :param masks_in:(list)
+        :return: merged mask
+        '''
+        ms_tmp = None
+        for i, ms in enumerate(masks_in):
+            if i == 0:
+                ms_tmp = ms
+            else:
+                ms_tmp += ms
+
+        return ms_tmp / len(masks_in)
+
+    def score_merge(self, scores_in):
+        '''
+
+        :param scores_in: (list)
+        :return: merged score
+        '''
+        return np.max(scores_in)
+
+    def msk2rle(self, maskin):
+        '''
+
+        :param mask:(frames,h,w)
+        :return:
+        '''
+        maskin = maskin > 0
+        _rle = [
+            maskUtils.encode(np.array(_mask[:, :, None], order="F", dtype="uint8"))[0]
+            for _mask in maskin
+        ]
+        for rle in _rle:
+            rle["counts"] = rle["counts"].decode("utf-8")
+        return _rle
+
+    def mask_NMS(self, catdict_in, IOU_thr=0.65):
+        '''
+
+        :param catdict_in: input attributed by category
+        :return: dict processed by nms
+        '''
+
+        for k, v in catdict_in.items():
+            # sort the values by scores
+            if len(v['scores']) > 1:
+                index_s = np.argsort(-np.asarray(v['scores']))
+                v['scores'] = np.asarray(v['scores'])[index_s]
+                v['masks'] = [v['masks'][s] for s in index_s]
+                v['rle'] = [self.msk2rle(r) for r in v['masks']]
+
+                # apply nms
+                supressed = np.zeros(len(v['masks']))
+                score_m = []
+                mask_m = []
+                for i in range(len(v['masks'])):
+                    if supressed[i] == 1:
+                        continue
+                    keep = [i]
+
+                    # mask to rle
+                    rle_1 = v['rle'][i]
+
+                    if i != len(v['masks']) - 1:
+                        for j in range(i + 1, len(v['masks'])):
+                            if supressed[j] == 1:
+                                continue
+
+                            # mask to rle
+                            rle_2 = v['rle'][j]
+
+                            iou = self._iou_seq(rle_1, rle_2)
+                            # print('iou', iou)
+                            if iou >= IOU_thr:
+                                supressed[j] = 1
+                                keep.append(j)
+                    score_m.append(self.score_merge(v['scores'][np.asarray(keep)]))
+
+                    mask_m.append(self.mask_merge([v['masks'][s] for s in keep]))
+
+                v['scores'] = score_m
+                v['masks'] = mask_m
+        return catdict_in

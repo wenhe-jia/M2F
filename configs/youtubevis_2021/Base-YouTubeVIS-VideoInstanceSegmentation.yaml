@@ -49,7 +49,7 @@ TEST:
   EVAL_PERIOD: 0
   AUG:
     ENABLED: True
-    MIN_SIZES: [ 360 ]            #240,360,480,720
+    MIN_SIZES: [ 240,360,480 ]            #240,360,480,600,720
     MAX_SIZE: 2048
     FLIP: True
 DATALOADER:
