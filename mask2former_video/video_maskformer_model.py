@@ -4,6 +4,7 @@ import logging
 import math
 import sys
 import gc
+import time
 from typing import Tuple
 
 import numpy as np
@@ -228,6 +229,12 @@ class VideoMaskFormer(nn.Module):
                 mode="bilinear",
                 align_corners=False,
             )
+
+            # copy outputs from gpu to cpu when re-scoring
+            if not mask_pred_result.is_cuda:
+                print('copying masks from gpu to cpu')
+                mask_cls_result = mask_cls_result.cpu().float()
+
 
             torch.cuda.empty_cache()
             gc.collect()
