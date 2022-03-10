@@ -244,8 +244,6 @@ class VideoMaskFormer(nn.Module):
 
             height = input_per_image.get("height", image_size[0])  # raw image size before data augmentation
             width = input_per_image.get("width", image_size[1])
-            del images
-            gc.collect()
 
             return retry_if_cuda_oom(self.inference_video)(mask_cls_result, mask_pred_result, image_size, height, width,
                                                            use_TTA)
@@ -305,6 +303,9 @@ class VideoMaskFormer(nn.Module):
             out_scores = []
             out_labels = []
             out_masks = []
+
+        torch.cuda.empty_cache()
+        gc.collect()
 
         video_output = {
             "image_size": (output_height, output_width),

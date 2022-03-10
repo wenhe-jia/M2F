@@ -85,6 +85,7 @@ class Trainer(DefaultTrainer):
             filter_empty=cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS,
             proposal_files=cfg.DATASETS.PROPOSAL_FILES_TRAIN if cfg.MODEL.LOAD_PROPOSALS else None,
         )
+        print(dataset_dict)
 
         return build_detection_train_loader(cfg, mapper=mapper, dataset=dataset_dict)
 
@@ -293,8 +294,8 @@ def main(args):
         return res
 
     trainer = Trainer(cfg)
-    trainer.resume_or_load(resume=args.resume)
-    return trainer.train()
+    # trainer.resume_or_load(resume=args.resume)
+    # return trainer.train()
 
 
 if __name__ == "__main__":
