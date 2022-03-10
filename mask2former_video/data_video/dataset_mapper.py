@@ -19,9 +19,11 @@ from detectron2.structures import (
 from detectron2.data import detection_utils as utils
 from detectron2.data import transforms as T
 
-from .augmentation import build_augmentation
+from .augmentation import build_augmentation, make_coco_transforms
 
-__all__ = ["YTVISDatasetMapper", "CocoClipDatasetMapper"]
+from .image_to_seq_augmenter import ImageToSeqAugmenter
+
+__all__ = ["YTVISDatasetMapper", "YTVISCOCOJointDatasetMapper", "CocoClipDatasetMapper"]
 
 
 def filter_empty_instances(instances, by_box=True, by_mask=True, box_threshold=1e-5):
@@ -265,6 +267,334 @@ class YTVISDatasetMapper:
             else:
                 instances.gt_masks = BitMasks(torch.empty((0, *image_shape)))
             dataset_dict["instances"].append(instances)
+        
+        print('+ dataset dict: ', type(dataset_dict), dataset_dict.keys())
+        for k, v in dataset_dict.items():
+            print('++ ', k, ': ', type(v))
+            if isinstance(v, list):
+                print('+++ ', k, ' len: ', len(v), type(v[0]))
+                if k == "image":
+                    print('++++ image: ', v[0].size(), v[0].device)
+                elif k == 'file_names':
+                    print('++++ file_name: ', v[0])
+                else:
+                    print('++++ single instance gt_boxes:', v[0].get('gt_boxes'))
+                    print('++++ single instance gt_classes:', v[0].get('gt_classes'))
+                    print('++++ single instance gt_masks:', v[0].get('gt_masks'), v[0].get('gt_masks').tensor, v[0].get('gt_masks').tensor.size())
+                    print('++++ single instance gt_ids:', v[0].get('gt_ids'))
+            else:
+                print('+++ ', k, ': ', v)
+        return dataset_dict
+
+
+def convert_coco_poly_to_mask(segmentations, height, width):
+    masks = []
+    for polygons in segmentations:
+        rles = coco_mask.frPyObjects(polygons, height, width)
+        mask = coco_mask.decode(rles)
+        if len(mask.shape) < 3:
+            mask = mask[..., None]
+        mask = torch.as_tensor(mask, dtype=torch.uint8)
+        mask = mask.any(dim=2)
+        masks.append(mask)
+    if masks:
+        masks = torch.stack(masks, dim=0)
+    else:
+        masks = torch.zeros((0, height, width), dtype=torch.uint8)
+    return masks
+
+
+class ConvertCocoPolysToMask(object):
+    def __init__(self, return_masks=False):
+        self.return_masks = return_masks
+        #ytvis19
+        # self.category_map = {1:1, 2:21, 3:6, 4:21, 5:28, 7:17, 8:29, 9:34, 17:14, 18:8, 19:18, 21:15, 22:32, 23:20, 24:30, 25:22, 36:33, 41:5, 42:27, 43:40, 74:24}
+        # ytvis21
+        self.category_map = {1:26, 2:23, 3:5, 4:23, 5:1, 7:36, 8:37, 9:4, 16:3, 17:6, 18:9, 19:19, 21:7, 22:12, 23:2, 24:40, 25:18, 36:31, 41:29, 42:33, 43:34, 74:24}
+
+    def __call__(self, image, target):
+        w, h = image.size
+
+        image_id = target["image_id"]
+        image_id = torch.tensor([image_id])
+
+        anno = target["annotations"]
+
+        anno = [obj for obj in anno if 'iscrowd' not in obj or obj['iscrowd'] == 0]
+
+        boxes = [obj["bbox"] for obj in anno]
+        # guard against no boxes via resizing
+        boxes = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 4)
+        boxes[:, 2:] += boxes[:, :2]
+        boxes[:, 0::2].clamp_(min=0, max=w)
+        boxes[:, 1::2].clamp_(min=0, max=h)
+
+        # classes = [obj["category_id"] for obj in anno]  # map coco category id to YTVIS-2019 category id
+        classes = [self.category_map[obj["category_id"]] for obj in anno]
+        classes = torch.tensor(classes, dtype=torch.int64)
+
+        if self.return_masks:
+            segmentations = [obj["segmentation"] for obj in anno]
+            masks = convert_coco_poly_to_mask(segmentations, h, w)
+
+        keypoints = None
+        if anno and "keypoints" in anno[0]:
+            keypoints = [obj["keypoints"] for obj in anno]
+            keypoints = torch.as_tensor(keypoints, dtype=torch.float32)
+            num_keypoints = keypoints.shape[0]
+            if num_keypoints:
+                keypoints = keypoints.view(num_keypoints, -1, 3)
+
+        keep = (boxes[:, 3] > boxes[:, 1]) & (boxes[:, 2] > boxes[:, 0])
+        boxes = boxes[keep]
+        classes = classes[keep]
+        if self.return_masks:
+            masks = masks[keep]
+        if keypoints is not None:
+            keypoints = keypoints[keep]
+
+        target = {}
+        target["boxes"] = boxes
+        target["labels"] = classes
+        if self.return_masks:
+            target["masks"] = masks
+        target["image_id"] = image_id
+        if keypoints is not None:
+            target["keypoints"] = keypoints
+
+        # for conversion to coco api
+        area = torch.tensor([obj["area"] for obj in anno])
+        iscrowd = torch.tensor([obj["iscrowd"] if "iscrowd" in obj else 0 for obj in anno])
+        target["area"] = area[keep]
+        target["iscrowd"] = iscrowd[keep]
+
+        target["orig_size"] = torch.as_tensor([int(h), int(w)])
+        target["size"] = torch.as_tensor([int(h), int(w)])
+
+        return image, target
+
+
+class YTVISCOCOJointDatasetMapper:
+    """
+    A callable which takes a dataset dict in YouTube-VIS Dataset format,
+    and map it into a format used by the model.
+    """
+
+    @configurable
+    def __init__(
+        self,
+        is_train: bool,
+        *,
+        augmentations: List[Union[T.Augmentation, T.Transform]],
+        image_format: str,
+        use_instance_mask: bool = False,
+        sampling_frame_num: int = 2,
+        sampling_frame_range: int = 5,
+        sampling_frame_shuffle: bool = False,
+        num_classes: int = 40,
+        train_scales: tuple = (),
+        train_size_max: int = 1333
+    ):
+        """
+        NOTE: this interface is experimental.
+        Args:
+            is_train: whether it's used in training or inference
+            augmentations: a list of augmentations or deterministic transforms to apply
+            image_format: an image format supported by :func:`detection_utils.read_image`.
+            use_instance_mask: whether to process instance segmentation annotations, if available
+        """
+        # fmt: off
+        self.is_train               = is_train
+        self.augmentations          = T.AugmentationList(augmentations)
+        self.image_format           = image_format
+        self.use_instance_mask      = use_instance_mask
+        self.sampling_frame_num     = sampling_frame_num
+        self.sampling_frame_range   = sampling_frame_range
+        self.sampling_frame_shuffle = sampling_frame_shuffle
+        self.num_classes            = num_classes
+
+        # for coco2seq
+        self.train_scales = train_scales
+        self.train_size_max = train_size_max
+        self.coco_augmentations = make_coco_transforms('train' if self.is_train else 'val', self.train_scales)
+        self.prepare = ConvertCocoPolysToMask(True)  # default kwargs: return_masks
+        self.num_frames = sampling_frame_num
+        self.augmenter = ImageToSeqAugmenter(perspective=True, affine=True, motion_blur=True,
+                                             rotation_range=(-20, 20), perspective_magnitude=0.08,
+                                             hue_saturation_range=(-5, 5), brightness_range=(-40, 40),
+                                             motion_blur_prob=0.25, motion_blur_kernel_sizes=(9, 11),
+                                             translate_range=(-0.1, 0.1))
+
+        # fmt: on
+        logger = logging.getLogger(__name__)
+        mode = "training" if is_train else "inference"
+        logger.info(f"[DatasetMapper] Augmentations used in {mode}: {augmentations}")
+
+    @classmethod
+    def from_config(cls, cfg, is_train: bool = True):
+        augs = build_augmentation(cfg, is_train)
+
+        sampling_frame_num = cfg.INPUT.SAMPLING_FRAME_NUM
+        sampling_frame_range = cfg.INPUT.SAMPLING_FRAME_RANGE
+        sampling_frame_shuffle = cfg.INPUT.SAMPLING_FRAME_SHUFFLE
+
+        ret = {
+            "is_train": is_train,
+            "augmentations": augs,
+            "image_format": cfg.INPUT.FORMAT,
+            "use_instance_mask": cfg.MODEL.MASK_ON,
+            "sampling_frame_num": sampling_frame_num,
+            "sampling_frame_range": sampling_frame_range,
+            "sampling_frame_shuffle": sampling_frame_shuffle,
+            "num_classes": cfg.MODEL.SEM_SEG_HEAD.NUM_CLASSES,
+            "train_scales": cfg.INPUT.MIN_SIZE_TRAIN,
+            "train_size_max": cfg.INPUT.MAX_SIZE_TRAIN
+        }
+
+        return ret
+
+    def __call__(self, dataset_dict):
+        """
+        Args:
+            dataset_dict (dict): Metadata of one video, in YTVIS Dataset format.
+
+        Returns:
+            dict: a format that builtin models in detectron2 accept
+        """
+        # TODO consider examining below deepcopy as it costs huge amount of computations.
+        dataset_dict = copy.deepcopy(dataset_dict)  # it will be modified by code below
+
+        if 'length' not in dataset_dict:
+
+            instance_check = False
+            while not instance_check:
+                print(dataset_dict)
+
+                img = Image.open(dataset_dict['file_name']).convert('RGB')
+                target = {'image_id': dataset_dict['image_id'], 'annotations': dataset_dict['annotations']}
+
+                img, target = self.prepare(img, target)
+                seq_images, seq_instance_masks = [img], [target['masks'].numpy()]
+                numpy_masks = target['masks'].numpy()
+
+                numinst = len(numpy_masks)
+                for t in range(self.num_frames - 1):
+                    im_trafo, instance_masks_trafo = self.augmenter(np.asarray(img), numpy_masks)
+                    im_trafo = Image.fromarray(np.uint8(im_trafo))
+                    seq_images.append(im_trafo)
+                    seq_instance_masks.append(np.stack(instance_masks_trafo, axis=0))
+                seq_images, seq_instance_masks = self.apply_random_sequence_shuffle(seq_images, seq_instance_masks)
+                output_inst_masks = []
+                for inst_i in range(numinst):
+                    inst_i_mask = []
+                    for f_i in range(self.num_frames):
+                        inst_i_mask.append(seq_instance_masks[f_i][inst_i])
+                    output_inst_masks.append(np.stack(inst_i_mask, axis=0))
+
+                output_inst_masks = torch.from_numpy(np.stack(output_inst_masks, axis=0))
+                target['masks'] = output_inst_masks.flatten(0, 1)
+                target['boxes'] = masks_to_boxes(target['masks'])
+
+                if self._transforms is not None:
+                    img, target = self.coco_augmentations(seq_images, target, self.num_frames)
+                if len(target['labels']) > 0 and len(target['labels']) <= 25:
+                    instance_check = True
+                else:
+                    idx = random.randint(0, self.__len__() - 1)  # None instance or too much instances
+
+            for inst_id in range(len(target['boxes'])):
+                if target['masks'][inst_id].max() < 1:
+                    target['boxes'][inst_id] = torch.zeros(4).to(target['boxes'][inst_id])
+
+            target['boxes'] = target['boxes'].clamp(1e-6)
+
+
+
+
+            # return torch.cat(img, dim=0), target
+            return {}
+        else:  # ytvis processing mode
+            video_length = dataset_dict["length"]
+            if self.is_train:
+                ref_frame = random.randrange(video_length)
+
+                start_idx = max(0, ref_frame-self.sampling_frame_range)
+                end_idx = min(video_length, ref_frame+self.sampling_frame_range + 1)
+
+                selected_idx = np.random.choice(
+                    np.array(list(range(start_idx, ref_frame)) + list(range(ref_frame+1, end_idx))),
+                    self.sampling_frame_num - 1,
+                )
+                selected_idx = selected_idx.tolist() + [ref_frame]
+                selected_idx = sorted(selected_idx)
+                if self.sampling_frame_shuffle:
+                    random.shuffle(selected_idx)
+            else:
+                selected_idx = range(video_length)
+
+            video_annos = dataset_dict.pop("annotations", None)
+            file_names = dataset_dict.pop("file_names", None)
+
+            if self.is_train:
+                _ids = set()
+                for frame_idx in selected_idx:
+                    _ids.update([anno["id"] for anno in video_annos[frame_idx]])
+                ids = dict()
+                for i, _id in enumerate(_ids):
+                    ids[_id] = i
+
+            dataset_dict["image"] = []
+            dataset_dict["instances"] = []
+            dataset_dict["file_names"] = []
+            for frame_idx in selected_idx:
+                dataset_dict["file_names"].append(file_names[frame_idx])
+
+                # Read image
+                image = utils.read_image(file_names[frame_idx], format=self.image_format)
+                utils.check_image_size(dataset_dict, image)
+
+                aug_input = T.AugInput(image)
+                transforms = self.augmentations(aug_input)
+                image = aug_input.image
+
+                image_shape = image.shape[:2]  # h, w
+                # Pytorch's dataloader is efficient on torch.Tensor due to shared-memory,
+                # but not efficient on large generic data structures due to the use of pickle & mp.Queue.
+                # Therefore it's important to use torch.Tensor.
+                dataset_dict["image"].append(torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1))))
+
+                if (video_annos is None) or (not self.is_train):
+                    continue
+
+                # NOTE copy() is to prevent annotations getting changed from applying augmentations
+                _frame_annos = []
+                for anno in video_annos[frame_idx]:
+                    _anno = {}
+                    for k, v in anno.items():
+                        _anno[k] = copy.deepcopy(v)
+                    _frame_annos.append(_anno)
+
+                # USER: Implement additional transformations if you have other types of data
+                annos = [
+                    utils.transform_instance_annotations(obj, transforms, image_shape)
+                    for obj in _frame_annos
+                    if obj.get("iscrowd", 0) == 0
+                ]
+                sorted_annos = [_get_dummy_anno(self.num_classes) for _ in range(len(ids))]
+
+                for _anno in annos:
+                    idx = ids[_anno["id"]]
+                    sorted_annos[idx] = _anno
+                _gt_ids = [_anno["id"] for _anno in sorted_annos]
+
+                instances = utils.annotations_to_instances(sorted_annos, image_shape, mask_format="bitmask")
+                instances.gt_ids = torch.tensor(_gt_ids)
+                if instances.has("gt_masks"):
+                    instances.gt_boxes = instances.gt_masks.get_bounding_boxes()
+                    instances = filter_empty_instances(instances)
+                else:
+                    instances.gt_masks = BitMasks(torch.empty((0, *image_shape)))
+                dataset_dict["instances"].append(instances)
 
         return dataset_dict
 

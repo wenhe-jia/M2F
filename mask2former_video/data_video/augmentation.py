@@ -13,6 +13,8 @@ from PIL import Image
 
 from detectron2.data import transforms as T
 
+from .transforms_clip import Compose, RandomHorizontalFlip, RandomResize, Check, ToTensor
+
 
 class ResizeShortestEdge(T.Augmentation):
     """
@@ -165,3 +167,28 @@ def build_augmentation(cfg, is_train):
         aug_list.append(T.ResizeShortestEdge(min_size, max_size, sample_style))
 
     return aug_list
+
+def make_coco_transforms(image_set, scales, max_size=1333):
+
+    # scales = [360, 480]
+
+    if image_set == 'train':
+        return Compose([
+            RandomHorizontalFlip(),
+            # T.PhotometricDistort(),
+            Compose([
+                RandomResize(scales, max_size=max_size),
+                Check(),
+            ]),
+            ToTensor(),
+        ])
+
+    if image_set == 'val':
+        return Compose([
+            # TC.RandomResize([800], max_size=1333),
+            RandomResize([360], max_size=max_size),
+            ToTensor(),
+        ])
+
+    raise ValueError(f'unknown {image_set}')
+

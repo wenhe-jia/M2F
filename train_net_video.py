@@ -46,6 +46,7 @@ from detectron2.utils.logger import setup_logger
 from mask2former import add_maskformer2_config
 from mask2former_video import (
     YTVISDatasetMapper,
+    YTVISCOCOJointDatasetMapper,
     YTVISEvaluator,
     add_maskformer2_video_config,
     build_detection_train_loader,
@@ -75,8 +76,12 @@ class Trainer(DefaultTrainer):
 
     @classmethod
     def build_train_loader(cls, cfg):
-        dataset_name = cfg.DATASETS.TRAIN[0]
-        mapper = YTVISDatasetMapper(cfg, is_train=True)
+        if 'coco_keepfor_ytvis21_train' in cfg.DATASETS.TRAIN or 'coco_keepfor_ytvis21_train' in cfg.DATASETS.TRAIN:
+            dataset_name = cfg.DATASETS.TRAIN
+            mapper = YTVISCOCOJointDatasetMapper(cfg, is_train=True)
+        else:
+            dataset_name = cfg.DATASETS.TRAIN[0]
+            mapper = YTVISDatasetMapper(cfg, is_train=True)
 
         dataset_dict = get_detection_dataset_dicts(
             dataset_name,
