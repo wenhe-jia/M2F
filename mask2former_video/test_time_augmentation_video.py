@@ -46,6 +46,7 @@ class SemanticSegmentorWithTTA_video(nn.Module):
         self.cfg = cfg.clone()
 
         self.model = model
+        self.model_cpu = copy.deepcopy(model).cpu()
 
         if tta_mapper is None:
             tta_mapper = DatasetMapperTTA_video(cfg)
@@ -98,13 +99,15 @@ class SemanticSegmentorWithTTA_video(nn.Module):
                     out = self.model([inputt], use_TTA=True)
                 except RuntimeError as e:
                     if "CUDA out of memory. " in str(e):
-                        device = torch.cuda.current_device()
-                        print('Attemping to inference on cpu')
-                        # print(e)
-                        self.model = self.model.to(torch.device('cpu'))
-                        out = self.model([inputt], use_TTA=True)
+                        # device = torch.cuda.current_device()
+                        print('Attemping to inference on cpu....')
+                        tc1 = time.time()
+                        # self.model = self.model.to(torch.device('cpu'))
+                        out = self.model_cpu([inputt], use_TTA=True)
+                        tc2 = time.time()
+                        print('inference time on cpu:{:.2f}'.format(tc2 - tc1) )
 
-                        self.model = self.model.to(torch.device('cuda:' + str(device)))
+                        # self.model = self.model.to(torch.device('cuda:' + str(device)))
                     else:
                         raise
 
