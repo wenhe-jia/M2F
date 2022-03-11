@@ -56,5 +56,6 @@ def register_all_ytvis_2021(root):
 if __name__.endswith(".builtin"):
     # Assume pre-defined datasets live in `./datasets`.
     _root = os.getenv("DETECTRON2_DATASETS", "datasets")
+    print('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
     register_all_ytvis_2019(_root)
     register_all_ytvis_2021(_root)
