@@ -100,12 +100,12 @@ class SemanticSegmentorWithTTA_video(nn.Module):
                 except RuntimeError as e:
                     if "CUDA out of memory. " in str(e):
                         # device = torch.cuda.current_device()
-                        print('Attemping to inference on cpu....')
+                        print('Attemping to inference on cpu....',end='')
                         tc1 = time.time()
                         # self.model = self.model.to(torch.device('cpu'))
                         out = self.model_cpu([inputt], use_TTA=True)
                         tc2 = time.time()
-                        print('inference time on cpu:{:.2f}'.format(tc2 - tc1) )
+                        print('inference time on cpu: {:.2f} s'.format(tc2 - tc1) )
 
                         # self.model = self.model.to(torch.device('cuda:' + str(device)))
                     else:

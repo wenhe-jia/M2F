@@ -96,7 +96,7 @@ def get_predictions_from_json(json_file):
         vid = fr['video_id']
 
         pre_list[vid]["pred_scores"].append(fr["score"])
-        pre_list[vid]["pred_labels"].append(fr['category_id'])
+        pre_list[vid]["pred_labels"].append(fr['category_id']-1)
         mask = [mask_util.decode(_m) for _m in fr['segmentations']]
         pre_list[vid]["pred_masks"].append(mask)
 
@@ -121,6 +121,7 @@ if __name__ == '__main__':
 
     # visualize
     metadata = MetadataCatalog.get(cfg.DATASETS.TEST[0])
+    # print(metadata)
     video_json = metadata.get('json_file')
     video_json = json.load(open(video_json, 'r'))
 
