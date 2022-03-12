@@ -498,44 +498,41 @@ class YTVISCOCOJointDatasetMapper:
         # print('+ dataset_dict: ', dataset_dict)
 
         if 'length' not in dataset_dict:  # coco pseudo video processing mode
-            print('load coco data ~~~~~~~~~~~~~')
-            instance_check = False
-            while not instance_check:
+            # print('load coco data ~~~~~~~~~~~~~')
+            img = Image.open(dataset_dict['file_name']).convert('RGB')
+            target = {'image_id': dataset_dict['image_id'], 'annotations': dataset_dict['annotations']}
 
-                img = Image.open(dataset_dict['file_name']).convert('RGB')
-                target = {'image_id': dataset_dict['image_id'], 'annotations': dataset_dict['annotations']}
+            img, target = self.prepare(img, target)
+            seq_images, seq_instance_masks = [img], [target['masks'].numpy()]
+            numpy_masks = target['masks'].numpy()
 
-                img, target = self.prepare(img, target)
-                seq_images, seq_instance_masks = [img], [target['masks'].numpy()]
-                numpy_masks = target['masks'].numpy()
+            numinst = len(numpy_masks)
+            # print('-- num instance: ', numinst)
+            for t in range(self.num_frames - 1):
+                im_trafo, instance_masks_trafo = self.augmenter(np.asarray(img), numpy_masks)
+                im_trafo = Image.fromarray(np.uint8(im_trafo))
+                seq_images.append(im_trafo)
+                seq_instance_masks.append(np.stack(instance_masks_trafo, axis=0))
+            seq_images, seq_instance_masks = self.apply_random_sequence_shuffle(seq_images, seq_instance_masks)
+            output_inst_masks = []
+            for inst_i in range(numinst):
+                inst_i_mask = []
+                for f_i in range(self.num_frames):
+                    inst_i_mask.append(seq_instance_masks[f_i][inst_i])
+                output_inst_masks.append(np.stack(inst_i_mask, axis=0))
 
-                numinst = len(numpy_masks)
-                # print('-- num instance: ', numinst)
-                for t in range(self.num_frames - 1):
-                    im_trafo, instance_masks_trafo = self.augmenter(np.asarray(img), numpy_masks)
-                    im_trafo = Image.fromarray(np.uint8(im_trafo))
-                    seq_images.append(im_trafo)
-                    seq_instance_masks.append(np.stack(instance_masks_trafo, axis=0))
-                seq_images, seq_instance_masks = self.apply_random_sequence_shuffle(seq_images, seq_instance_masks)
-                output_inst_masks = []
-                for inst_i in range(numinst):
-                    inst_i_mask = []
-                    for f_i in range(self.num_frames):
-                        inst_i_mask.append(seq_instance_masks[f_i][inst_i])
-                    output_inst_masks.append(np.stack(inst_i_mask, axis=0))
+            output_inst_masks = torch.from_numpy(np.stack(output_inst_masks, axis=0))
+            target['masks'] = output_inst_masks.flatten(0, 1)
+            target['boxes'] = masks_to_boxes(target['masks'])
 
-                output_inst_masks = torch.from_numpy(np.stack(output_inst_masks, axis=0))
-                target['masks'] = output_inst_masks.flatten(0, 1)
-                target['boxes'] = masks_to_boxes(target['masks'])
-
-                if self.coco_augmentations is not None:
-                    img, target = self.coco_augmentations(seq_images, target, self.num_frames)
-                if len(target['labels']) > 0 and len(target['labels']) <= 25:
-                    pass
-                elif len(target['labels']) == 0:
-                    print('no objects in current coco image, idx: {}, filename: {}'.format(dataset_dict["image_id"], dataset_dict["file_name"]))
-                else:
-                    target['labels'] = target['labels'][:]
+            if self.coco_augmentations is not None:
+                img, target = self.coco_augmentations(seq_images, target, self.num_frames)
+            # if len(target['labels']) > 0 and len(target['labels']) <= 25:
+            #     pass
+            # elif len(target['labels']) == 0:
+            #     print('no objects in current coco image, idx: {}, filename: {}'.format(dataset_dict["image_id"], dataset_dict["file_name"]))
+            # else:
+            #     target['labels'] = target['labels'][:25]
 
             for inst_id in range(len(target['boxes'])):
                 if target['masks'][inst_id].max() < 1:
@@ -584,7 +581,7 @@ class YTVISCOCOJointDatasetMapper:
                 dataset_dict['instances'].append(instances_per_frame)
 
         else:  # ytvis processing mode
-            print('load ytvis data ~~~~~~~~~~~~~')
+            # print('load ytvis data ~~~~~~~~~~~~~')
 
             video_length = dataset_dict["length"]
             if self.is_train:
