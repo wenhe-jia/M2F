@@ -46,6 +46,7 @@ class SemanticSegmentorWithTTA_video(nn.Module):
         self.cfg = cfg.clone()
 
         self.model = model
+        self.model_cpu = copy.deepcopy(model).cpu()
 
         if tta_mapper is None:
             tta_mapper = DatasetMapperTTA_video(cfg)
@@ -59,7 +60,7 @@ class SemanticSegmentorWithTTA_video(nn.Module):
         """
 
         # x={'height': 720, 'width': 1280, 'length': 36, 'video_id': 1, 'image': [tensor,...],'instances': [], 'file_names': []}
-        result = retry_if_cuda_oom(self._inference_one_video)(batched_inputs[0])
+        result = self._inference_one_video(batched_inputs[0])
 
         return result
 
@@ -93,7 +94,23 @@ class SemanticSegmentorWithTTA_video(nn.Module):
         for inputt, tfm in zip(augmented_inputs, tfms):  # one input for one video
             count_predictions += 1
             with torch.no_grad():
-                out = self.model([inputt], use_TTA=True)
+
+                try:
+                    out = self.model([inputt], use_TTA=True)
+                except RuntimeError as e:
+                    if "CUDA out of memory. " in str(e):
+                        # device = torch.cuda.current_device()
+                        print('Attemping to inference on cpu....',end='')
+                        tc1 = time.time()
+                        # self.model = self.model.to(torch.device('cpu'))
+                        out = self.model_cpu([inputt], use_TTA=True)
+                        tc2 = time.time()
+                        print('inference time on cpu: {:.2f} s'.format(tc2 - tc1) )
+
+                        # self.model = self.model.to(torch.device('cuda:' + str(device)))
+                    else:
+                        raise
+
                 if final_predictions is None:
                     if any(isinstance(t, HFlipTransform) for t in tfm.transforms):
                         final_predictions = self._flip_final_predictions(out.pop("pred_masks"))
@@ -140,6 +157,7 @@ class SemanticSegmentorWithTTA_video(nn.Module):
         gc.collect()
 
         final_predictions = [pre > 0 for pre in final_predictions]
+        # top10index = np.argsort(-final_scores)[:10]
 
         return {"image_size": orig_shape,
                 "pred_scores": final_scores,
@@ -249,6 +267,7 @@ class SemanticSegmentorWithTTA_video(nn.Module):
                             rle_2 = v['rle'][j]
 
                             iou = self._iou_seq(rle_1, rle_2)
+                            v['scores'][j] *= np.exp(-iou ** 2 / 0.5)
                             # print('iou', iou)
                             if iou >= IOU_thr:
                                 supressed[j] = 1
