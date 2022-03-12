@@ -23,6 +23,9 @@ from .augmentation import build_augmentation, make_coco_transforms
 
 from .image_to_seq_augmenter import ImageToSeqAugmenter
 
+from PIL import Image
+from pycocotools import mask as coco_mask
+
 __all__ = ["YTVISDatasetMapper", "YTVISCOCOJointDatasetMapper", "CocoClipDatasetMapper"]
 
 
@@ -268,22 +271,22 @@ class YTVISDatasetMapper:
                 instances.gt_masks = BitMasks(torch.empty((0, *image_shape)))
             dataset_dict["instances"].append(instances)
         
-        print('+ dataset dict: ', type(dataset_dict), dataset_dict.keys())
-        for k, v in dataset_dict.items():
-            print('++ ', k, ': ', type(v))
-            if isinstance(v, list):
-                print('+++ ', k, ' len: ', len(v), type(v[0]))
-                if k == "image":
-                    print('++++ image: ', v[0].size(), v[0].device)
-                elif k == 'file_names':
-                    print('++++ file_name: ', v[0])
-                else:
-                    print('++++ single instance gt_boxes:', v[0].get('gt_boxes'))
-                    print('++++ single instance gt_classes:', v[0].get('gt_classes'))
-                    print('++++ single instance gt_masks:', v[0].get('gt_masks'), v[0].get('gt_masks').tensor, v[0].get('gt_masks').tensor.size())
-                    print('++++ single instance gt_ids:', v[0].get('gt_ids'))
-            else:
-                print('+++ ', k, ': ', v)
+        # print('+ dataset dict: ', type(dataset_dict), dataset_dict.keys())
+        # for k, v in dataset_dict.items():
+        #     print('++ ', k, ': ', type(v))
+        #     if isinstance(v, list):
+        #         print('+++ ', k, ' len: ', len(v), type(v[0]))
+        #         if k == "image":
+        #             print('++++ image: ', v[0].size(), v[0].device)
+        #         elif k == 'file_names':
+        #             print('++++ file_name: ', v[0])
+        #         else:
+        #             print('++++ single instance gt_boxes:', v[0].get('gt_boxes'))
+        #             print('++++ single instance gt_classes:', v[0].get('gt_classes'))
+        #             print('++++ single instance gt_masks:', v[0].get('gt_masks'), v[0].get('gt_masks').tensor, v[0].get('gt_masks').tensor.size())
+        #             print('++++ single instance gt_ids:', v[0].get('gt_ids'))
+        #     else:
+        #         print('+++ ', k, ': ', v)
         return dataset_dict
 
 
@@ -309,8 +312,10 @@ class ConvertCocoPolysToMask(object):
         self.return_masks = return_masks
         #ytvis19
         # self.category_map = {1:1, 2:21, 3:6, 4:21, 5:28, 7:17, 8:29, 9:34, 17:14, 18:8, 19:18, 21:15, 22:32, 23:20, 24:30, 25:22, 36:33, 41:5, 42:27, 43:40, 74:24}
-        # ytvis21
-        self.category_map = {1:26, 2:23, 3:5, 4:23, 5:1, 7:36, 8:37, 9:4, 16:3, 17:6, 18:9, 19:19, 21:7, 22:12, 23:2, 24:40, 25:18, 36:31, 41:29, 42:33, 43:34, 74:24}
+        # ytvis21, dataset category id map
+        # self.category_map = {1:26, 2:23, 3:5, 4:23, 5:1, 7:36, 8:37, 9:4, 16:3, 17:6, 18:9, 19:19, 21:7, 22:12, 23:2, 24:40, 25:18, 36:31, 41:29, 42:33, 43:34, 74:24}
+        # ytvis, loaded category id map
+        self.category_map = {0:25, 1:22, 2:4, 3:22, 4:0, 6:35, 7:36, 8:3, 14:2, 15:5, 16:8, 17:18, 19:6, 20:11, 21:1, 22:39, 23:17, 31:30, 36:28, 37:32, 38:33, 64:23}
 
     def __call__(self, image, target):
         w, h = image.size
@@ -363,15 +368,42 @@ class ConvertCocoPolysToMask(object):
             target["keypoints"] = keypoints
 
         # for conversion to coco api
-        area = torch.tensor([obj["area"] for obj in anno])
+        # area = torch.tensor([obj["area"] for obj in anno])
         iscrowd = torch.tensor([obj["iscrowd"] if "iscrowd" in obj else 0 for obj in anno])
-        target["area"] = area[keep]
+        # target["area"] = area[keep]
         target["iscrowd"] = iscrowd[keep]
 
-        target["orig_size"] = torch.as_tensor([int(h), int(w)])
-        target["size"] = torch.as_tensor([int(h), int(w)])
+        # target["orig_size"] = torch.as_tensor([int(h), int(w)])
+        # target["size"] = torch.as_tensor([int(h), int(w)])
 
         return image, target
+
+
+def masks_to_boxes(masks):
+    """Compute the bounding boxes around the provided masks
+
+    The masks should be in format [N, H, W] where N is the number of masks, (H, W) are the spatial dimensions.
+
+    Returns a [N, 4] tensors, with the boxes in xyxy format
+    """
+    if masks.numel() == 0:
+        return torch.zeros((0, 4), device=masks.device)
+
+    h, w = masks.shape[-2:]
+
+    y = torch.arange(0, h, dtype=torch.float, device=masks.device)
+    x = torch.arange(0, w, dtype=torch.float, device=masks.device)
+    y, x = torch.meshgrid(y, x)
+
+    x_mask = (masks * x.unsqueeze(0))
+    x_max = x_mask.flatten(1).max(-1)[0]
+    x_min = x_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]
+
+    y_mask = (masks * y.unsqueeze(0))
+    y_max = y_mask.flatten(1).max(-1)[0]
+    y_min = y_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]
+
+    return torch.stack([x_min, y_min, x_max, y_max], 1)
 
 
 class YTVISCOCOJointDatasetMapper:
@@ -463,12 +495,12 @@ class YTVISCOCOJointDatasetMapper:
         """
         # TODO consider examining below deepcopy as it costs huge amount of computations.
         dataset_dict = copy.deepcopy(dataset_dict)  # it will be modified by code below
+        # print('+ dataset_dict: ', dataset_dict)
 
-        if 'length' not in dataset_dict:
-
+        if 'length' not in dataset_dict:  # coco pseudo video processing mode
+            print('load coco data ~~~~~~~~~~~~~')
             instance_check = False
             while not instance_check:
-                print(dataset_dict)
 
                 img = Image.open(dataset_dict['file_name']).convert('RGB')
                 target = {'image_id': dataset_dict['image_id'], 'annotations': dataset_dict['annotations']}
@@ -478,6 +510,7 @@ class YTVISCOCOJointDatasetMapper:
                 numpy_masks = target['masks'].numpy()
 
                 numinst = len(numpy_masks)
+                # print('-- num instance: ', numinst)
                 for t in range(self.num_frames - 1):
                     im_trafo, instance_masks_trafo = self.augmenter(np.asarray(img), numpy_masks)
                     im_trafo = Image.fromarray(np.uint8(im_trafo))
@@ -495,25 +528,64 @@ class YTVISCOCOJointDatasetMapper:
                 target['masks'] = output_inst_masks.flatten(0, 1)
                 target['boxes'] = masks_to_boxes(target['masks'])
 
-                if self._transforms is not None:
+                if self.coco_augmentations is not None:
                     img, target = self.coco_augmentations(seq_images, target, self.num_frames)
                 if len(target['labels']) > 0 and len(target['labels']) <= 25:
-                    instance_check = True
+                    pass
+                elif len(target['labels']) == 0:
+                    print('no objects in current coco image, idx: {}, filename: {}'.format(dataset_dict["image_id"], dataset_dict["file_name"]))
                 else:
-                    idx = random.randint(0, self.__len__() - 1)  # None instance or too much instances
+                    target['labels'] = target['labels'][:]
 
             for inst_id in range(len(target['boxes'])):
                 if target['masks'][inst_id].max() < 1:
                     target['boxes'][inst_id] = torch.zeros(4).to(target['boxes'][inst_id])
 
             target['boxes'] = target['boxes'].clamp(1e-6)
+            # print('+++ transformed img and target: ', type(img), type(target))
+            # print('+++ img: ', len(img), type(img[0]), img[0].size())
+            # print('+++ target: ', target.keys())
+            # for k, v in target.items():
+            #     if k == 'masks':
+            #         print('++++ ', k, ': ', v.size(), '|', v.device, '|', np.unique(v.numpy()))
+            #     elif k == 'boxes':
+            #         print('++++ ', k, ': ', v.size(), '|', v.device)
+            #     else:
+            #         print('++++ ', k, ': ', v.size(), '|', v.device, '|', v)
 
+            # prepare single pseudo video dataloader outputs in m2f style
+            dataset_dict["length"] = self.num_frames
+            dataset_dict["file_names"] = [dataset_dict["file_name"]] * self.num_frames
+            del dataset_dict["file_name"]
+            dataset_dict["image"] = img
 
+            dataset_dict["instances"] = []
+            # print(img[0].size(), '-------')
+            aug_h, aug_w = img[0].size()[1:]
+            num_ins = int(target["boxes"].size()[0] / self.num_frames)
+            boxes = copy.deepcopy(target["boxes"]).reshape(num_ins, self.num_frames, target["boxes"].size()[-1])  # (num_instance, num_frame, 4)
+            masks = copy.deepcopy(target["masks"]).reshape(num_ins, self.num_frames, target["masks"].size()[1], target["masks"].size()[2])  # (num_instance, num_frame, H, W)
+            for frame_idx in range(self.num_frames):
+                # create Instances object for current frame
+                instances_per_frame = Instances((aug_h, aug_w))
+                # add gt obj ids to Instances
+                gt_ids = list(range(num_ins))
+                instances_per_frame.gt_ids = torch.tensor(gt_ids)
+                # add gt obj classes to Instances
+                classes = target["labels"]
+                instances_per_frame.gt_classes = classes
+                # add gt obj boxes to Instances
+                boxes_per_frame = boxes[:, frame_idx, :]  # (num_instance, 4)
+                instances_per_frame.gt_boxes = Boxes(boxes_per_frame)
+                # add gt obj masks to Instances
+                masks_per_frame = masks[:, frame_idx, :, :]  # (num_instance, H, W)
+                instances_per_frame.gt_masks = BitMasks(masks_per_frame)
 
+                dataset_dict['instances'].append(instances_per_frame)
 
-            # return torch.cat(img, dim=0), target
-            return {}
         else:  # ytvis processing mode
+            print('load ytvis data ~~~~~~~~~~~~~')
+
             video_length = dataset_dict["length"]
             if self.is_train:
                 ref_frame = random.randrange(video_length)
@@ -598,6 +670,12 @@ class YTVISCOCOJointDatasetMapper:
 
         return dataset_dict
 
+    def apply_random_sequence_shuffle(self, images, instance_masks):
+        perm = list(range(self.num_frames))
+        random.shuffle(perm)
+        images = [images[i] for i in perm]
+        instance_masks = [instance_masks[i] for i in perm]
+        return images, instance_masks
 
 class CocoClipDatasetMapper:
     """

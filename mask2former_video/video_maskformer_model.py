@@ -180,9 +180,11 @@ class VideoMaskFormer(nn.Module):
         images = []
         for video in batched_inputs:
             for frame in video["image"]:
+                # print(frame.size())
                 images.append(frame.to(self.device))
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
         images = ImageList.from_tensors(images, self.size_divisibility)
+        # print('-+ images size: ', images.tensor.size())
 
         features = self.backbone(images.tensor)
         outputs = self.sem_seg_head(features)
@@ -225,10 +227,14 @@ class VideoMaskFormer(nn.Module):
             return retry_if_cuda_oom(self.inference_video)(mask_cls_result, mask_pred_result, image_size, height, width)
 
     def prepare_targets(self, targets, images):
+        # print('+ images size: ', images.tensor.size())
         h_pad, w_pad = images.tensor.shape[-2:]
+        # print('+ pad size: ', h_pad, w_pad)
         gt_instances = []
         for targets_per_video in targets:
+            # print('++ each vid first frame instances: ', targets_per_video["instances"][0])
             _num_instance = len(targets_per_video["instances"][0])
+            # print('++ each vid num instance: ', _num_instance)
             mask_shape = [_num_instance, self.num_frames, h_pad, w_pad]
             gt_masks_per_video = torch.zeros(mask_shape, dtype=torch.bool, device=self.device)
 
@@ -236,8 +242,11 @@ class VideoMaskFormer(nn.Module):
             for f_i, targets_per_frame in enumerate(targets_per_video["instances"]):
                 targets_per_frame = targets_per_frame.to(self.device)
                 h, w = targets_per_frame.image_size
+                # print('+++ h and w for single frame: ', h, w)
 
                 gt_ids_per_video.append(targets_per_frame.gt_ids[:, None])
+                # print('+++ gt_ids_per_video: ', targets_per_frame.gt_ids[:, None])
+                # print('+++ single frame masks: ', targets_per_frame.gt_masks.tensor.size())
                 gt_masks_per_video[:, f_i, :h, :w] = targets_per_frame.gt_masks.tensor
 
             gt_ids_per_video = torch.cat(gt_ids_per_video, dim=1)

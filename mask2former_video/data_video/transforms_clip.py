@@ -7,7 +7,7 @@
 import random
 
 import PIL
-import torch
+import torch, torchvision
 import torchvision.transforms as T
 import torchvision.transforms.functional as F
 
