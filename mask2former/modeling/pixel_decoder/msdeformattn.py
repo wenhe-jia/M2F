@@ -324,13 +324,11 @@ class MSDeformAttnPixelDecoder(nn.Module):
         # self.transformer_in_features: ["res3", "res4", "res5"]
         for idx, f in enumerate(self.transformer_in_features[::-1]):
             x = features[f].float()  # deformable detr does not support half precision
-            print('+ src', f, ': ', self.input_proj[idx](x).size())
             srcs.append(self.input_proj[idx](x))
-            print('+ pos', f, ': ', self.pe_layer(x).size())
             pos.append(self.pe_layer(x))
 
+        # y is cancated feature map of all levels, in shape (N, sum(H_res-i*W_res-i), C), N = num_vid*num_frame
         y, spatial_shapes, level_start_index = self.transformer(srcs, pos)
-        print('++ after MSDeformAttnTransformerEncoderOnly: ', type(y), spatial_shapes, level_start_index)
         bs = y.shape[0]
 
         split_size_or_sections = [None] * self.transformer_num_feature_levels
@@ -339,13 +337,13 @@ class MSDeformAttnPixelDecoder(nn.Module):
                 split_size_or_sections[i] = level_start_index[i + 1] - level_start_index[i]
             else:
                 split_size_or_sections[i] = y.shape[1] - level_start_index[i]
-        y = torch.split(y, split_size_or_sections, dim=1)
+        y = torch.split(y, split_size_or_sections, dim=1)  # y: [(N, H_res-i*W_res-i, C)], current res5/4/3
 
         out = []
         multi_scale_features = []
         num_cur_levels = 0
         for i, z in enumerate(y):
-            out.append(z.transpose(1, 2).view(bs, -1, spatial_shapes[i][0], spatial_shapes[i][1]))
+            out.append(z.transpose(1, 2).view(bs, -1, spatial_shapes[i][0], spatial_shapes[i][1]))  # (N, H_res-i*W_res-i, C) --> (N, C, H_res-i, W_res-i)
 
         # append `out` with extra FPN levels
         # Reverse feature maps into top-down order (from low to high resolution)
@@ -360,8 +358,11 @@ class MSDeformAttnPixelDecoder(nn.Module):
             out.append(y)
 
         for o in out:
-            if num_cur_levels < self.maskformer_num_feature_levels:
+            if num_cur_levels < self.maskformer_num_feature_levels:  # self.maskformer_num_feature_levels=3
                 multi_scale_features.append(o)
                 num_cur_levels += 1
 
+        # self.mask_features(out[-1]): conv(res2), in shape (N, C, H/4, W/4)
+        # out[0]: res5, in shape (N, C, H/32, W/32)
+        # multi_scale_features: [res5, res4, res3], each in shape (N, C, H_res-i, W_res-i)
         return self.mask_features(out[-1]), out[0], multi_scale_features

@@ -117,10 +117,12 @@ class MaskFormerHead(nn.Module):
 
     def layers(self, features, mask=None):
         print('------ sem_seg_head ------')
-        print('+ backbone features: ', len(features), features.keys())
-        for fname, f in features.items():
-            print('++ ', fname, ': ', f.size())
+        # features: {'res2':, 'res3':, 'res4':, 'res5':}
         mask_features, transformer_encoder_features, multi_scale_features = self.pixel_decoder.forward_features(features)
+        # mask_features: res2
+        # transformer_encoder_features: res5
+        # multi_scale_features: [res5, res4, res3]
+
         if self.transformer_in_feature == "multi_scale_pixel_decoder":
             predictions = self.predictor(multi_scale_features, mask_features, mask)
         else:
