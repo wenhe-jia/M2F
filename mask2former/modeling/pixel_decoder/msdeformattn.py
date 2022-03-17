@@ -194,7 +194,7 @@ class MSDeformAttnPixelDecoder(nn.Module):
         super().__init__()
         transformer_input_shape = {
             k: v for k, v in input_shape.items() if k in transformer_in_features
-        }
+        }  # {"res3":(N, C8, H/8, W/8), "res4":(N, C16, H/16, W/16), "res5":(N, C32, H/32, W/32)}
 
         # this is the input shape of pixel decoder
         input_shape = sorted(input_shape.items(), key=lambda x: x[1].stride)
@@ -204,7 +204,7 @@ class MSDeformAttnPixelDecoder(nn.Module):
         
         # this is the input shape of transformer encoder (could use less features than pixel decoder
         transformer_input_shape = sorted(transformer_input_shape.items(), key=lambda x: x[1].stride)
-        self.transformer_in_features = [k for k, v in transformer_input_shape]  # starting from "res2" to "res5"
+        self.transformer_in_features = [k for k, v in transformer_input_shape]  # starting from "res2" to "res5", ["res3", "res4", "res5"]
         transformer_in_channels = [v.channels for k, v in transformer_input_shape]
         self.transformer_feature_strides = [v.stride for k, v in transformer_input_shape]  # to decide extra FPN layers
 
@@ -297,31 +297,40 @@ class MSDeformAttnPixelDecoder(nn.Module):
         ret["input_shape"] = {
             k: v for k, v in input_shape.items() if k in cfg.MODEL.SEM_SEG_HEAD.IN_FEATURES
         }
-        ret["conv_dim"] = cfg.MODEL.SEM_SEG_HEAD.CONVS_DIM
-        ret["mask_dim"] = cfg.MODEL.SEM_SEG_HEAD.MASK_DIM
-        ret["norm"] = cfg.MODEL.SEM_SEG_HEAD.NORM
-        ret["transformer_dropout"] = cfg.MODEL.MASK_FORMER.DROPOUT
-        ret["transformer_nheads"] = cfg.MODEL.MASK_FORMER.NHEADS
+        ret["conv_dim"] = cfg.MODEL.SEM_SEG_HEAD.CONVS_DIM  # 256
+        ret["mask_dim"] = cfg.MODEL.SEM_SEG_HEAD.MASK_DIM  # 256
+        ret["norm"] = cfg.MODEL.SEM_SEG_HEAD.NORM  # GN
+        ret["transformer_dropout"] = cfg.MODEL.MASK_FORMER.DROPOUT  # 0.0
+        ret["transformer_nheads"] = cfg.MODEL.MASK_FORMER.NHEADS  # 8
         # ret["transformer_dim_feedforward"] = cfg.MODEL.MASK_FORMER.DIM_FEEDFORWARD
         ret["transformer_dim_feedforward"] = 1024  # use 1024 for deformable transformer encoder
-        ret[
-            "transformer_enc_layers"
-        ] = cfg.MODEL.SEM_SEG_HEAD.TRANSFORMER_ENC_LAYERS  # a separate config
-        ret["transformer_in_features"] = cfg.MODEL.SEM_SEG_HEAD.DEFORMABLE_TRANSFORMER_ENCODER_IN_FEATURES
-        ret["common_stride"] = cfg.MODEL.SEM_SEG_HEAD.COMMON_STRIDE
+        ret["transformer_enc_layers"] = cfg.MODEL.SEM_SEG_HEAD.TRANSFORMER_ENC_LAYERS  # a separate config, 6
+        ret["transformer_in_features"] = cfg.MODEL.SEM_SEG_HEAD.DEFORMABLE_TRANSFORMER_ENCODER_IN_FEATURES  # ["res3", "res4", "res5"]
+        ret["common_stride"] = cfg.MODEL.SEM_SEG_HEAD.COMMON_STRIDE  # 4
         return ret
 
     @autocast(enabled=False)
     def forward_features(self, features):
+        # {
+        #  res2: (num_vid * num_frame, C_1/4, H/4, W/4),
+        #  res3: (num_vid * num_frame, C_1/8, H/8, W/8),
+        #  res4: (num_vid * num_frame, C_1/16, H/16, W/16),
+        #  res5: (num_vid * num_frame, C_1/32, H/32, W/32)
+        # }
         srcs = []
         pos = []
         # Reverse feature maps into top-down order (from low to high resolution)
+        print('------ pixel_decoder ------')
+        # self.transformer_in_features: ["res3", "res4", "res5"]
         for idx, f in enumerate(self.transformer_in_features[::-1]):
             x = features[f].float()  # deformable detr does not support half precision
+            print('+ src', f, ': ', self.input_proj[idx](x).size())
             srcs.append(self.input_proj[idx](x))
+            print('+ pos', f, ': ', self.pe_layer(x).size())
             pos.append(self.pe_layer(x))
 
         y, spatial_shapes, level_start_index = self.transformer(srcs, pos)
+        print('++ after MSDeformAttnTransformerEncoderOnly: ', type(y), spatial_shapes, level_start_index)
         bs = y.shape[0]
 
         split_size_or_sections = [None] * self.transformer_num_feature_levels

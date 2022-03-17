@@ -1,6 +1,6 @@
 _BASE_: Base-YouTubeVIS-VideoInstanceSegmentation.yaml
 MODEL:
-  WEIGHTS: "model_final_3c8ec9.pkl"
+  WEIGHTS: "weights/model_final_3c8ec9.pkl"
   META_ARCHITECTURE: "VideoMaskFormer"
   SEM_SEG_HEAD:
     NAME: "MaskFormerHead"
@@ -43,3 +43,8 @@ MODEL:
       PANOPTIC_ON: False
       OVERLAP_THRESHOLD: 0.8
       OBJECT_MASK_THRESHOLD: 0.8
+SOLVER:
+  IMS_PER_BATCH: 2
+  MAX_ITER: 1
+DATALOADER:
+  NUM_WORKERS: 0

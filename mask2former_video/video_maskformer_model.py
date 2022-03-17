@@ -184,6 +184,8 @@ class VideoMaskFormer(nn.Module):
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
         images = ImageList.from_tensors(images, self.size_divisibility)
 
+        print('------ video_maskformer_model ------')
+        print('+ images: ', images.tensor.size())
         features = self.backbone(images.tensor)
         outputs = self.sem_seg_head(features)
 
