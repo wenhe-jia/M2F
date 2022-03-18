@@ -320,7 +320,7 @@ class MSDeformAttnPixelDecoder(nn.Module):
         srcs = []
         pos = []
         # Reverse feature maps into top-down order (from low to high resolution)
-        print('------ pixel_decoder ------')
+        # print('------ pixel_decoder ------')
         # self.transformer_in_features: ["res3", "res4", "res5"]
         for idx, f in enumerate(self.transformer_in_features[::-1]):
             x = features[f].float()  # deformable detr does not support half precision

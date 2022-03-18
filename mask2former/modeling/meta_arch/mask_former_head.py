@@ -116,7 +116,7 @@ class MaskFormerHead(nn.Module):
         return self.layers(features, mask)
 
     def layers(self, features, mask=None):
-        print('------ sem_seg_head ------')
+        # print('------ sem_seg_head ------')
         # features: {'res2':, 'res3':, 'res4':, 'res5':}
         mask_features, transformer_encoder_features, multi_scale_features = self.pixel_decoder.forward_features(features)
         # mask_features: res2

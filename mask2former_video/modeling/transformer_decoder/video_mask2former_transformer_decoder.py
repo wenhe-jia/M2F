@@ -370,7 +370,7 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
         # x: multi-scale features in [res5, res4, res3]
         # mask_features: res2
 
-        print('------ transformer_decoder ------')
+        # print('------ transformer_decoder ------')
         bt, c_m, h_m, w_m = mask_features.shape
         bs = bt // self.num_frames if self.training else 1
         t = bt // bs
