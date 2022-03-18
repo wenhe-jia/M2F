@@ -382,8 +382,8 @@ class MultiScaleMaskedTransformerDecoder(nn.Module):
         _, bs, _ = src[0].shape
 
         # QxNxC
-        query_embed = self.query_embed.weight.unsqueeze(1).repeat(1, bs, 1)
-        output = self.query_feat.weight.unsqueeze(1).repeat(1, bs, 1)
+        query_embed = self.query_embed.weight.unsqueeze(1).repeat(1, bs, 1)  # (Q, B, dim)
+        output = self.query_feat.weight.unsqueeze(1).repeat(1, bs, 1)  # (Q, B, dim)
 
         predictions_class = []
         predictions_mask = []

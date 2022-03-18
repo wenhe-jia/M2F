@@ -387,9 +387,9 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
 
         for i in range(self.num_feature_levels):
             size_list.append(x[i].shape[-2:])
-            # position_encoding in shape (num_vid, num_frame, C, H, W) --flatten--> (num_vid, num_frame, C, H*W)
+            # position_encoding in shape (num_vid, num_frame, C, H, W) --flatten--> (B*T, C, H*W)
             pos.append(self.pe_layer(x[i].view(bs, t, -1, size_list[-1][0], size_list[-1][1]), None).flatten(3))
-            # src features with level_embedding in shape (num_vid*num_frame, C, H_res-i*W_res-i)
+            # src features with level_embedding in shape (B*T, C, H*W)
             src.append(self.input_proj[i](x[i]).flatten(2) + self.level_embed.weight[i][None, :, None])
 
             # NTxCxHW => NxTxCxHW => (TxHW)xNxC
@@ -405,8 +405,7 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
         predictions_mask = []
 
         # prediction heads on learnable query features
-        outputs_class, outputs_mask, attn_mask = self.forward_prediction_heads(output, mask_features,
-                                                                               attn_mask_target_size=size_list[0])
+        outputs_class, outputs_mask, attn_mask = self.forward_prediction_heads(output, mask_features, attn_mask_target_size=size_list[0])
         predictions_class.append(outputs_class)
         predictions_mask.append(outputs_mask)
 
@@ -432,9 +431,7 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
                 output
             )
 
-            outputs_class, outputs_mask, attn_mask = self.forward_prediction_heads(output, mask_features,
-                                                                                   attn_mask_target_size=size_list[(
-                                                                                                                               i + 1) % self.num_feature_levels])
+            outputs_class, outputs_mask, attn_mask = self.forward_prediction_heads(output, mask_features, attn_mask_target_size=size_list[(i + 1) % self.num_feature_levels])
             predictions_class.append(outputs_class)
             predictions_mask.append(outputs_mask)
 
@@ -450,11 +447,17 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
         return out
 
     def forward_prediction_heads(self, output, mask_features, attn_mask_target_size):
+        # output: in shape (Q, B, C)
         decoder_output = self.decoder_norm(output)
+        # decoder_output: in shape (Q, B, C)
         decoder_output = decoder_output.transpose(0, 1)
+        # decoder_output: in shape (B, Q, C)
         outputs_class = self.class_embed(decoder_output)
+        # outputs_class: in shape (B, Q, num_cls+1)
         mask_embed = self.mask_embed(decoder_output)
+        # mask_embed: in shape (B, Q, mask_dim)
         outputs_mask = torch.einsum("bqc,btchw->bqthw", mask_embed, mask_features)
+        # outputs_mask: in shape (B, Q, T, H, W)
         b, q, t, _, _ = outputs_mask.shape
 
         # NOTE: prediction is of higher-resolution
@@ -464,8 +467,8 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
             b, q, t, attn_mask_target_size[0], attn_mask_target_size[1])
         # must use bool type
         # If a BoolTensor is provided, positions with ``True`` are not allowed to attend while ``False`` values will be unchanged.
-        attn_mask = (attn_mask.sigmoid().flatten(2).unsqueeze(1).repeat(1, self.num_heads, 1, 1).flatten(0,
-                                                                                                         1) < 0.5).bool()
+        attn_mask = (attn_mask.sigmoid().flatten(2).unsqueeze(1).repeat(1, self.num_heads, 1, 1).flatten(0, 1) < 0.5).bool()
+        # attn_mask: in shape (B*num_head, Q, T*H*W)
         attn_mask = attn_mask.detach()
 
         return outputs_class, outputs_mask, attn_mask
