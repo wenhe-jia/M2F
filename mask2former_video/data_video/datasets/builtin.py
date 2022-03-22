@@ -30,6 +30,15 @@ _PREDEFINED_SPLITS_YTVIS_2021 = {
                         "ytvis_2021/test.json"),
 }
 
+# ==== Predefined splits for YTVIS 2021 ===========
+_PREDEFINED_SPLITS_YTVIS_2021_MINI = {
+    "ytvis_2021_mini_train": ("ytvis_2021_mini/train/JPEGImages",
+                         "ytvis_2021_mini/train.json"),
+    "ytvis_2021_mini_val": ("ytvis_2021_mini/valid/JPEGImages",
+                       "ytvis_2021_mini/valid.json"),
+    "ytvis_2021_mini_test": ("ytvis_2021_mini/test/JPEGImages",
+                        "ytvis_2021_mini/test.json"),
+}
 
 def register_all_ytvis_2019(root):
     for key, (image_root, json_file) in _PREDEFINED_SPLITS_YTVIS_2019.items():
@@ -52,9 +61,19 @@ def register_all_ytvis_2021(root):
             os.path.join(root, image_root),
         )
 
+def register_all_ytvis_2021_mini(root):
+    for key, (image_root, json_file) in _PREDEFINED_SPLITS_YTVIS_2021_MINI.items():
+        # Assume pre-defined datasets live in `./datasets`.
+        register_ytvis_instances(
+            key,
+            _get_ytvis_2021_instances_meta(),
+            os.path.join(root, json_file) if "://" not in json_file else json_file,
+            os.path.join(root, image_root),
+        )
 
 if __name__.endswith(".builtin"):
     # Assume pre-defined datasets live in `./datasets`.
     _root = os.getenv("DETECTRON2_DATASETS", "datasets")
     register_all_ytvis_2019(_root)
     register_all_ytvis_2021(_root)
+    register_all_ytvis_2021_mini(_root)
