@@ -205,6 +205,35 @@ class MLP(nn.Module):
         return x
 
 
+class Centerness(nn.Module):
+    """simple centerness prediction"""
+    def __init__(self, dim_in):
+        super().__init__()
+        self.dim_in = dim_in
+
+        tower = []
+        for i in range(4):
+            tower.append(nn.Conv2d(self.dim_in, self.dim_in, 3, stride=1, padding=1))
+            tower.append(nn.GroupNorm(self.dim_in, self.dim_in, eps=1e-5))
+            tower.append(nn.ReLU(inplace=True))
+
+        self.add_module('tower', nn.Sequential(*tower))
+
+        self.centerness = nn.Conv2d(self.dim_in, 1, 3, stride=1, padding=1)
+
+        # Initialization
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                torch.nn.init.normal_(m.weight, std=0.01)
+                if m.bias is not None:
+                    torch.nn.init.constant_(m.bias, 0)
+
+    def forward(self, feature):
+        tower_out = self.tower(feature)
+        out = self.centerness(tower_out)
+        return out
+
+
 @TRANSFORMER_DECODER_REGISTRY.register()
 class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
     _version = 2
@@ -273,6 +302,9 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
         self.mask_classification = mask_classification
 
         self.num_frames = num_frames
+
+        # Predict centerness for each object in single frame.
+        self.centerness = Centerness(hidden_dim)
 
         # positional encoding
         N_steps = hidden_dim // 2
@@ -370,6 +402,11 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
         # x: multi-scale features in [res5, res4, res3]
         # mask_features: res2
 
+        # Extract top NUM_QUERY features with dimension (C,) from centerness prediction
+        # for each video(with several frames) as the initial query features.
+        centerness = self.centerness(mask_features)
+        output = self.get_init_query_features(centerness, mask_features)
+
         # print('------ transformer_decoder ------')
         bt, c_m, h_m, w_m = mask_features.shape
         bs = bt // self.num_frames if self.training else 1
@@ -399,7 +436,8 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
 
         # QxNxC
         query_embed = self.query_embed.weight.unsqueeze(1).repeat(1, bs, 1)
-        output = self.query_feat.weight.unsqueeze(1).repeat(1, bs, 1)
+        # output = self.query_feat.weight.unsqueeze(1).repeat(1, bs, 1)
+
 
         predictions_class = []
         predictions_mask = []
@@ -442,7 +480,8 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
             'pred_masks': predictions_mask[-1],
             'aux_outputs': self._set_aux_loss(
                 predictions_class if self.mask_classification else None, predictions_mask
-            )
+            ),
+            'centerness': [centerness]
         }
         return out
 
@@ -485,3 +524,23 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
             ]
         else:
             return [{"pred_masks": b} for b in outputs_seg_masks[:-1]]
+
+    def get_init_query_features(self, centerness, features):
+        bt, c_m, h_m, w_m = features.shape
+        bs = bt // self.num_frames if self.training else 1
+        t = bt // bs
+
+        centerness_vids = torch.split(centerness, t, dim=0)  # [(T, 1, H, W) * B]
+        feature_vids = torch.split(features, t, dim=0)  # [(T, C, H, W) * B]
+
+        query_feature_vids = []
+        for centerness_per_vid, features_per_vis in zip(centerness_vids, feature_vids):
+            _, top_inds = centerness_per_vid.squeeze().flatten().topk(self.num_queries, sorted=False)
+            t_inds = top_inds // (h_m * w_m)
+            xy_ind = top_inds - h_m * w_m * t_inds
+            y_inds = xy_ind // w_m
+            x_inds = xy_ind % w_m
+
+            query_feature_per_vid = features_per_vis[t_inds, :, y_inds, x_inds]  # [Q, C]
+            query_feature_vids.append(query_feature_per_vid)
+        return torch.stack(query_feature_vids, dim=1)  # [Q, B, C]

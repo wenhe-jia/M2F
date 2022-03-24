@@ -53,6 +53,8 @@ from mask2former_video import (
     get_detection_dataset_dicts,
 )
 
+import wandb
+
 
 class Trainer(DefaultTrainer):
     """
@@ -260,6 +262,10 @@ def setup(args):
 def main(args):
     cfg = setup(args)
 
+    wandb.init(project="query_impr_by_centerness", entity="black-magicians", group='debug_multi-gpu', name='1',
+
+    config=dict(yaml=args.config_file))
+
     if args.eval_only:
         model = Trainer.build_model(cfg)
         DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
@@ -285,6 +291,6 @@ if __name__ == "__main__":
         args.num_gpus,
         num_machines=args.num_machines,
         machine_rank=args.machine_rank,
-        dist_url=args.dist_url,
+        dist_url="tcp://127.0.0.1:20000",
         args=(args,),
     )

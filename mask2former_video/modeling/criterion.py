@@ -3,7 +3,7 @@
 """
 MaskFormer criterion.
 """
-import logging
+import logging, os
 
 import torch
 import torch.nn.functional as F
@@ -85,6 +85,13 @@ def calculate_uncertainty(logits):
     assert logits.shape[1] == 1
     gt_class_logits = logits.clone()
     return -(torch.abs(gt_class_logits))
+
+def compute_centerness_targets(reg_targets):
+    left_right = reg_targets[:, [0, 2]]
+    top_bottom = reg_targets[:, [1, 3]]
+    centerness = (left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0]) * \
+                  (top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0])
+    return torch.sqrt(centerness)
 
 
 class VideoSetCriterion(nn.Module):
@@ -185,6 +192,22 @@ class VideoSetCriterion(nn.Module):
         del target_masks
         return losses
 
+    def loss_centerness(self, centerness, reg_targets, pos_inds, num_pos_avg_per_gpu):
+
+        if pos_inds.numel() > 0:
+            centerness_targets = compute_centerness_targets(reg_targets)
+            centerness_loss = nn.BCEWithLogitsLoss(reduction="sum")(
+                centerness,
+                centerness_targets
+            ) / num_pos_avg_per_gpu
+        else:
+            if is_dist_avail_and_initialized():
+                torch.distributed.all_reduce(centerness.new_tensor([0.0]))
+            centerness_loss = centerness.sum()
+
+        losses = {'loss_centerness': centerness_loss}
+        return losses
+
     def _get_src_permutation_idx(self, indices):
         # permute predictions following indices
         batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
@@ -200,12 +223,12 @@ class VideoSetCriterion(nn.Module):
     def get_loss(self, loss, outputs, targets, indices, num_masks):
         loss_map = {
             'labels': self.loss_labels,
-            'masks': self.loss_masks,
+            'masks': self.loss_masks
         }
         assert loss in loss_map, f"do you really want to compute {loss} loss?"
         return loss_map[loss](outputs, targets, indices, num_masks)
 
-    def forward(self, outputs, targets):
+    def forward(self, outputs, targets, ctn):
         """This performs the loss computation.
         Parameters:
              outputs: dict of tensors, see the output specification of the model for the format
@@ -226,10 +249,26 @@ class VideoSetCriterion(nn.Module):
             torch.distributed.all_reduce(num_masks)
         num_masks = torch.clamp(num_masks / get_world_size(), min=1).item()
 
+        centerness_output = ctn["centerness"]
+        reg_targets = ctn["reg_targets"]
+        pos_inds = ctn["pos_inds"]
+        num_pos = torch.as_tensor(
+            [pos_inds.numel()], dtype=torch.float, device=centerness_output.device
+        )
+        if is_dist_avail_and_initialized():
+            torch.distributed.all_reduce(num_pos)
+        # sync num_pos from all gpus
+        num_pos_avg_per_gpu = max(num_pos / get_world_size(), 1.0)
+
         # Compute all the requested losses
         losses = {}
         for loss in self.losses:
             losses.update(self.get_loss(loss, outputs, targets, indices, num_masks))
+
+        losses.update(
+            self.loss_centerness(
+                centerness_output, reg_targets, pos_inds, num_pos_avg_per_gpu)
+        )
 
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
         if "aux_outputs" in outputs:
