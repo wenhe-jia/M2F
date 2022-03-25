@@ -185,6 +185,8 @@ class VideoMaskFormer(nn.Module):
                     segments_info (list[dict]): Describe each segment in `panoptic_seg`.
                         Each dict contains keys "id", "category_id", "isthing".
         """
+        # print('======================================')
+
         images = []
         for video in batched_inputs:
             for frame in video["image"]:
@@ -366,8 +368,11 @@ class VideoMaskFormer(nn.Module):
         # convert m2f video input into coco image format
         targets = []
         for video in video_batched_targets:
+            # print('+ vid id: ', video['video_id'])
             instances_per_video = video['instances']
             for inatances_per_im in instances_per_video:
+                # print('-------')
+                # print('++ frame instances: ', inatances_per_im)
                 inatances_per_im = inatances_per_im.to(self.device)
                 targets_per_im = {}
                 targets_per_im['gt_boxes'] = inatances_per_im.gt_boxes.tensor
