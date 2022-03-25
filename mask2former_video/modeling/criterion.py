@@ -201,13 +201,7 @@ class VideoSetCriterion(nn.Module):
                 reduction = "sum"
             ) / num_pos_avg_per_gpu
         else:
-            print('~~~~~~~~~~ no pos_ind for ctn ~~~~~~~~~~~~~')
-            if is_dist_avail_and_initialized():
-                torch.distributed.all_reduce(centerness.new_tensor([0.0]))
-            print('~~~~')
-            print(centerness.sum())
             centerness_loss = centerness.sum()
-            print('centerness_loss: ', centerness_loss)
 
         losses = {'loss_centerness': centerness_loss}
         return losses

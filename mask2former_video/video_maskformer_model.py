@@ -292,7 +292,7 @@ class VideoMaskFormer(nn.Module):
     def compute_locations(self, centerness):
         locations = []
         for level, ctn in enumerate(centerness):
-            h, w = feature.size()[-2:]
+            h, w = ctn.size()[-2:]
             locations_per_level = self.compute_locations_per_level(
                 h, w, self.centerness_strides[level],
                 ctn.device
