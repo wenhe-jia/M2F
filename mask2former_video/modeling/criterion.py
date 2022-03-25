@@ -193,17 +193,21 @@ class VideoSetCriterion(nn.Module):
         return losses
 
     def loss_centerness(self, centerness, reg_targets, pos_inds, num_pos_avg_per_gpu):
-
         if pos_inds.numel() > 0:
             centerness_targets = compute_centerness_targets(reg_targets)
-            centerness_loss = nn.BCEWithLogitsLoss(reduction="sum")(
+            centerness_loss = F.binary_cross_entropy_with_logits(
                 centerness,
-                centerness_targets
+                centerness_targets,
+                reduction = "sum"
             ) / num_pos_avg_per_gpu
         else:
+            print('~~~~~~~~~~ no pos_ind for ctn ~~~~~~~~~~~~~')
             if is_dist_avail_and_initialized():
                 torch.distributed.all_reduce(centerness.new_tensor([0.0]))
+            print('~~~~')
+            print(centerness.sum())
             centerness_loss = centerness.sum()
+            print('centerness_loss: ', centerness_loss)
 
         losses = {'loss_centerness': centerness_loss}
         return losses

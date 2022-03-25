@@ -195,7 +195,7 @@ class VideoMaskFormer(nn.Module):
         # print('------ video_maskformer_model ------')
         # print('+ images: ', images.tensor.size())
         features = self.backbone(images.tensor)
-        outputs, features_for_centerness = self.sem_seg_head(features)
+        outputs = self.sem_seg_head(features)
 
         if self.training:
             # mask classification target
@@ -204,7 +204,7 @@ class VideoMaskFormer(nn.Module):
             targets = self.prepare_targets(batched_inputs, images)
 
             centerness = outputs.pop("centerness")
-            ctn_targets = self.prepare_ctn_targets(batched_inputs_, features_for_centerness, centerness)
+            ctn_targets = self.prepare_ctn_targets(batched_inputs_, centerness)
 
             # bipartite matching-based loss
             losses = self.criterion(outputs, targets, ctn_targets)
@@ -266,8 +266,8 @@ class VideoMaskFormer(nn.Module):
 
         return gt_instances
 
-    def prepare_ctn_targets(self, targets, features, centerness):
-        locations = self.compute_locations(features)
+    def prepare_ctn_targets(self, targets, centerness):
+        locations = self.compute_locations(centerness)
         labels, reg_targets = self.prepare_fcos_targets(locations, targets)
 
         centerness_flatten = []
@@ -289,13 +289,13 @@ class VideoMaskFormer(nn.Module):
 
         return {"centerness": centerness_flatten, "reg_targets": reg_targets_flatten, 'pos_inds': pos_inds}
 
-    def compute_locations(self, features):
+    def compute_locations(self, centerness):
         locations = []
-        for level, feature in enumerate(features):
+        for level, ctn in enumerate(centerness):
             h, w = feature.size()[-2:]
             locations_per_level = self.compute_locations_per_level(
                 h, w, self.centerness_strides[level],
-                feature.device
+                ctn.device
             )
             locations.append(locations_per_level)
         return locations

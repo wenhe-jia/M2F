@@ -135,4 +135,4 @@ class MaskFormerHead(nn.Module):
                 predictions = self.predictor(mask_features, mask_features, mask)
             else:
                 predictions = self.predictor(features[self.transformer_in_feature], mask_features, mask)
-        return predictions, [mask_features]
+        return predictions
