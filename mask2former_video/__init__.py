@@ -6,6 +6,7 @@ from .config import add_maskformer2_video_config
 
 # models
 from .video_maskformer_model import VideoMaskFormer
+from .long_video_model import LongVideo_inference_model
 
 # video
 from .data_video import (

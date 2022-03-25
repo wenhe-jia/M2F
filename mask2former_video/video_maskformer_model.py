@@ -29,21 +29,21 @@ class VideoMaskFormer(nn.Module):
 
     @configurable
     def __init__(
-        self,
-        *,
-        backbone: Backbone,
-        sem_seg_head: nn.Module,
-        criterion: nn.Module,
-        num_queries: int,
-        object_mask_threshold: float,
-        overlap_threshold: float,
-        metadata,
-        size_divisibility: int,
-        sem_seg_postprocess_before_inference: bool,
-        pixel_mean: Tuple[float],
-        pixel_std: Tuple[float],
-        # video
-        num_frames,
+            self,
+            *,
+            backbone: Backbone,
+            sem_seg_head: nn.Module,
+            criterion: nn.Module,
+            num_queries: int,
+            object_mask_threshold: float,
+            overlap_threshold: float,
+            metadata,
+            size_divisibility: int,
+            sem_seg_postprocess_before_inference: bool,
+            pixel_mean: Tuple[float],
+            pixel_std: Tuple[float],
+            # video
+            num_frames,
     ):
         """
         Args:
@@ -204,6 +204,7 @@ class VideoMaskFormer(nn.Module):
         else:
             mask_cls_results = outputs["pred_logits"]
             mask_pred_results = outputs["pred_masks"]
+            qurry_feat = outputs['qurry_feature']
 
             mask_cls_result = mask_cls_results[0]
             # upsample masks
@@ -222,7 +223,8 @@ class VideoMaskFormer(nn.Module):
             height = input_per_image.get("height", image_size[0])  # raw image size before data augmentation
             width = input_per_image.get("width", image_size[1])
 
-            return retry_if_cuda_oom(self.inference_video)(mask_cls_result, mask_pred_result, image_size, height, width)
+            return retry_if_cuda_oom(self.inference_video)(mask_cls_result, mask_pred_result, qurry_feat, image_size,
+                                                           height, width)
 
     def prepare_targets(self, targets, images):
         h_pad, w_pad = images.tensor.shape[-2:]
@@ -243,24 +245,26 @@ class VideoMaskFormer(nn.Module):
             gt_ids_per_video = torch.cat(gt_ids_per_video, dim=1)
             valid_idx = (gt_ids_per_video != -1).any(dim=-1)
 
-            gt_classes_per_video = targets_per_frame.gt_classes[valid_idx]          # N,
-            gt_ids_per_video = gt_ids_per_video[valid_idx]                          # N, num_frames
+            gt_classes_per_video = targets_per_frame.gt_classes[valid_idx]  # N,
+            gt_ids_per_video = gt_ids_per_video[valid_idx]  # N, num_frames
 
             gt_instances.append({"labels": gt_classes_per_video, "ids": gt_ids_per_video})
-            gt_masks_per_video = gt_masks_per_video[valid_idx].float()          # N, num_frames, H, W
+            gt_masks_per_video = gt_masks_per_video[valid_idx].float()  # N, num_frames, H, W
             gt_instances[-1].update({"masks": gt_masks_per_video})
 
         return gt_instances
 
-    def inference_video(self, pred_cls, pred_masks, img_size, output_height, output_width):
+    def inference_video(self, pred_cls, pred_masks, q_feature, img_size, output_height, output_width):
         if len(pred_cls) > 0:
             scores = F.softmax(pred_cls, dim=-1)[:, :-1]
-            labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)
+            labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(
+                self.num_queries, 1).flatten(0, 1)
             # keep top-10 predictions
             scores_per_image, topk_indices = scores.flatten(0, 1).topk(10, sorted=False)
             labels_per_image = labels[topk_indices]
             topk_indices = topk_indices // self.sem_seg_head.num_classes
             pred_masks = pred_masks[topk_indices]
+            q_feature = q_feature[topk_indices]
 
             pred_masks = pred_masks[:, :, : img_size[0], : img_size[1]]
             pred_masks = F.interpolate(
@@ -272,16 +276,19 @@ class VideoMaskFormer(nn.Module):
             out_scores = scores_per_image.tolist()
             out_labels = labels_per_image.tolist()
             out_masks = [m for m in masks.cpu()]
+            q_feature = q_feature.cpu()
         else:
             out_scores = []
             out_labels = []
             out_masks = []
+            q_feature = None
 
         video_output = {
             "image_size": (output_height, output_width),
             "pred_scores": out_scores,
             "pred_labels": out_labels,
             "pred_masks": out_masks,
+            'qurry_feature': q_feature,
         }
 
         return video_output

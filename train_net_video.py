@@ -8,6 +8,7 @@ try:
     # ignore ShapelyDeprecationWarning from fvcore
     from shapely.errors import ShapelyDeprecationWarning
     import warnings
+
     warnings.filterwarnings('ignore', category=ShapelyDeprecationWarning)
 except:
     pass
@@ -51,6 +52,7 @@ from mask2former_video import (
     build_detection_train_loader,
     build_detection_test_loader,
     get_detection_dataset_dicts,
+    LongVideo_inference_model,
 )
 
 
@@ -138,10 +140,10 @@ class Trainer(DefaultTrainer):
                 if "backbone" in module_name:
                     hyperparams["lr"] = hyperparams["lr"] * cfg.SOLVER.BACKBONE_MULTIPLIER
                 if (
-                    "relative_position_bias_table" in module_param_name
-                    or "absolute_pos_embed" in module_param_name
+                        "relative_position_bias_table" in module_param_name
+                        or "absolute_pos_embed" in module_param_name
                 ):
-                    print(module_param_name)
+                    # print(module_param_name)
                     hyperparams["weight_decay"] = 0.0
                 if isinstance(module, norm_module_types):
                     hyperparams["weight_decay"] = weight_decay_norm
@@ -153,9 +155,9 @@ class Trainer(DefaultTrainer):
             # detectron2 doesn't have full model gradient clipping now
             clip_norm_val = cfg.SOLVER.CLIP_GRADIENTS.CLIP_VALUE
             enable = (
-                cfg.SOLVER.CLIP_GRADIENTS.ENABLED
-                and cfg.SOLVER.CLIP_GRADIENTS.CLIP_TYPE == "full_model"
-                and clip_norm_val > 0.0
+                    cfg.SOLVER.CLIP_GRADIENTS.ENABLED
+                    and cfg.SOLVER.CLIP_GRADIENTS.CLIP_TYPE == "full_model"
+                    and clip_norm_val > 0.0
             )
 
             class FullModelGradientClippingOptimizer(optim):
@@ -231,7 +233,7 @@ class Trainer(DefaultTrainer):
                     results_i
                 )
                 logger.info("Evaluation results for {} in csv format:".format(dataset_name))
-                print_csv_format(results_i)
+                # print_csv_format(results_i)
 
         if len(results) == 1:
             results = list(results.values())[0]
@@ -265,6 +267,7 @@ def main(args):
         DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
             cfg.MODEL.WEIGHTS, resume=args.resume
         )
+        model = LongVideo_inference_model(cfg, model)
         res = Trainer.test(cfg, model)
         if cfg.TEST.AUG.ENABLED:
             raise NotImplementedError
