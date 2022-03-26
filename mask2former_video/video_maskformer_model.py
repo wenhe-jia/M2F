@@ -92,7 +92,7 @@ class VideoMaskFormer(nn.Module):
 
         self.centerness_strides = [4]
         self.norm_reg_targets = False
-        self.center_sampling_radius = 1.5
+        self.center_sampling_radius = 0.0  # 1.5
 
     @classmethod
     def from_config(cls, cfg):
@@ -366,6 +366,8 @@ class VideoMaskFormer(nn.Module):
 
     def compute_targets_for_locations(self, locations, video_batched_targets, object_sizes_of_interest):
         # convert m2f video input into coco image format
+        device = locations.device
+
         targets = []
         for video in video_batched_targets:
             # print('+ vid id: ', video['video_id'])
@@ -375,9 +377,14 @@ class VideoMaskFormer(nn.Module):
                 # print('++ frame instances: ', inatances_per_im)
                 inatances_per_im = inatances_per_im.to(self.device)
                 targets_per_im = {}
-                targets_per_im['gt_boxes'] = inatances_per_im.gt_boxes.tensor
-                targets_per_im['gt_classes'] = inatances_per_im.gt_classes
-                targets_per_im['gt_areas'] = inatances_per_im.gt_boxes.area()
+                if inatances_per_im.gt_boxes.tensor.size()[0] == 0:
+                    targets_per_im['gt_boxes'] = torch.as_tensor([[0., 0., 1., 1.]], dtype=torch.float32, device=device)
+                    targets_per_im['gt_classes'] = torch.randint(0, 40, (1,), dtype=torch.int8, device=device)
+                    targets_per_im['gt_areas'] = torch.zeros(1, dtype=torch.float32, device=device)
+                else:
+                    targets_per_im['gt_boxes'] = inatances_per_im.gt_boxes.tensor
+                    targets_per_im['gt_classes'] = inatances_per_im.gt_classes
+                    targets_per_im['gt_areas'] = inatances_per_im.gt_boxes.area()
                 targets.append(targets_per_im)
 
         labels = []
@@ -390,6 +397,7 @@ class VideoMaskFormer(nn.Module):
             # bboxes = targets_per_im.bbox
             # labels_per_im = targets_per_im.get_field("labels")
             # area = targets_per_im.area()
+
             bboxes = targets_per_im['gt_boxes']
             labels_per_im = targets_per_im['gt_classes']
             area = targets_per_im['gt_areas']
@@ -442,8 +450,11 @@ class VideoMaskFormer(nn.Module):
         maskrcnn_benchmark/modeling/rpn/fcos/loss.py#L42
         '''
         num_gts = gt.shape[0]
+        # print('+++ ', num_gts)
+
         K = len(gt_xs)
         gt = gt[None].expand(K, num_gts, 4)
+        # print('+++ ', gt.shape)
         center_x = (gt[..., 0] + gt[..., 2]) / 2
         center_y = (gt[..., 1] + gt[..., 3]) / 2
         center_gt = gt.new_zeros(gt.shape)
