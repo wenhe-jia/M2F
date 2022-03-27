@@ -90,7 +90,7 @@ class VideoMaskFormer(nn.Module):
 
         self.num_frames = num_frames
 
-        self.centerness_strides = [4]
+        self.centerness_strides = [32, 16, 8]
         self.norm_reg_targets = False
         self.center_sampling_radius = 0.0  # 1.5
 
@@ -117,7 +117,7 @@ class VideoMaskFormer(nn.Module):
             num_points=cfg.MODEL.MASK_FORMER.TRAIN_NUM_POINTS,
         )
 
-        weight_dict = {"loss_ce": class_weight, "loss_mask": mask_weight, "loss_dice": dice_weight, "loss_centerness": 1.0}
+        weight_dict = {"loss_ce": class_weight, "loss_mask": mask_weight, "loss_dice": dice_weight, "loss_centerness": 2.0}
 
         if deep_supervision:
             dec_layers = cfg.MODEL.MASK_FORMER.DEC_LAYERS
@@ -319,13 +319,17 @@ class VideoMaskFormer(nn.Module):
 
     def prepare_fcos_targets(self, points, targets):
         # object_sizes_of_interest = [
-        #     [-1, 64],
-        #     [64, 128],
-        #     [128, 256],
-        #     [256, 512],
-        #     [512, INF],
+        #     [-1, 64],  # 1/8
+        #     [64, 128],  # 1/16
+        #     [128, 256],  # 1/32
+        #     [256, 512],  # 1/64
+        #     [512, INF],  # 1/128
         # ]
-        object_sizes_of_interest = [[-1, INF]]
+        object_sizes_of_interest = [
+            [-1, 128],
+            [128, 256],
+            [256, INF]
+        ]
         expanded_object_sizes_of_interest = []
         for l, points_per_level in enumerate(points):
             object_sizes_of_interest_per_level = \

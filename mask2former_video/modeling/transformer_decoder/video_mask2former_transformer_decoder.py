@@ -228,10 +228,13 @@ class Centerness(nn.Module):
                 if m.bias is not None:
                     torch.nn.init.constant_(m.bias, 0)
 
-    def forward(self, feature):
-        tower_out = self.tower(feature)
-        out = self.centerness(tower_out)
-        return out
+    def forward(self, x):
+        output = []
+        for l, feature in enumerate(x):
+            tower_out = self.tower(feature)
+            out = self.centerness(tower_out)
+            output.append(out)
+        return output
 
 
 @TRANSFORMER_DECODER_REGISTRY.register()
@@ -404,8 +407,8 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
 
         # Extract top NUM_QUERY features with dimension (C,) from centerness prediction
         # for each video(with several frames) as the initial query features.
-        centerness = self.centerness(mask_features)
-        output = self.get_init_query_features(centerness, mask_features)
+        centerness = self.centerness(x)
+        output = self.get_init_query_features(centerness, x)
 
         # print('------ transformer_decoder ------')
         bt, c_m, h_m, w_m = mask_features.shape
@@ -481,7 +484,7 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
             'aux_outputs': self._set_aux_loss(
                 predictions_class if self.mask_classification else None, predictions_mask
             ),
-            'centerness': [centerness]
+            'centerness': centerness
         }
         return out
 
@@ -526,21 +529,39 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
             return [{"pred_masks": b} for b in outputs_seg_masks[:-1]]
 
     def get_init_query_features(self, centerness, features):
-        bt, c_m, h_m, w_m = features.shape
+        """
+
+        :param centerness: list tensor, centerness pred of multi lvl
+        :param features: list tensor, features of multi lvl
+        :return: topk features in shape (Q, B, C)
+        """
+
+        assert len(features) == self.num_feature_levels
+        assert len(centerness) == self.num_feature_levels
+
+        bt, c_m, h_m, w_m = features[0].shape
         bs = bt // self.num_frames if self.training else 1
         t = bt // bs
 
-        centerness_vids = torch.split(centerness, t, dim=0)  # [(T, 1, H, W) * B]
-        feature_vids = torch.split(features, t, dim=0)  # [(T, C, H, W) * B]
+        query_features = []
+        features_vids = [[]] * bs
+        centerness_vids = [[]] * bs
+        for vid in range(bs):
+            for lvl in range(self.num_feature_levels):
+                ctn_vids_lvl = torch.split(centerness[lvl], t, dim=0)  # [(T, 1, H_lvl, W_lvl) * B]
+                f_vids_lvl = torch.split(features[lvl], t, dim=0)  # [(T, C, H_lvl, W_lvl) * B]
 
-        query_feature_vids = []
-        for centerness_per_vid, features_per_vis in zip(centerness_vids, feature_vids):
-            _, top_inds = centerness_per_vid.squeeze().flatten().topk(self.num_queries, sorted=False)
-            t_inds = top_inds // (h_m * w_m)
-            xy_ind = top_inds - h_m * w_m * t_inds
-            y_inds = xy_ind // w_m
-            x_inds = xy_ind % w_m
+                assert len(ctn_vids_lvl) == bs
+                assert len(f_vids_lvl) == bs
 
-            query_feature_per_vid = features_per_vis[t_inds, :, y_inds, x_inds]  # [Q, C]
-            query_feature_vids.append(query_feature_per_vid)
-        return torch.stack(query_feature_vids, dim=1)  # [Q, B, C]
+                centerness_vids[vid].append(ctn_vids_lvl[vid].squeeze().flatten())  # (T, 1, H_lvl, W_lvl) -> (T*H_lvl*W_lvl)
+                features_vids[vid].append(f_vids_lvl[vid].permute(0, 2, 3 ,1).flatten(0, 2))  # (T, C, H_lvl, W_lvl) -> (T*H_lvl*W_lvl, C)
+
+            centerness_vids[vid] = torch.cat(centerness_vids[vid], dim=0)   # (T*H_lvl1*W_lvl1 + T*H_lvl2*W_lvl2 + ... , )
+            features_vids[vid] = torch.cat(features_vids[vid], dim=0)   # (T*H_lvl1*W_lvl1 + T*H_lvl2*W_lvl2 + ... , C)
+
+            _, top_inds = centerness_vids[vid].topk(self.num_queries, sorted=False)
+            query_feature_per_vid = features_vids[vid][top_inds]  # (Q, C)
+            query_features.append(query_feature_per_vid)
+
+        return torch.stack(query_features, dim=1)  # [Q, B, C]
