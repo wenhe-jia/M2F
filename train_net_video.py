@@ -53,6 +53,7 @@ from mask2former_video import (
     build_detection_test_loader,
     get_detection_dataset_dicts,
     SemanticSegmentorWithTTA_video,
+    LongVideo_inference_model,
 )
 
 
@@ -144,7 +145,7 @@ class Trainer(DefaultTrainer):
                         "relative_position_bias_table" in module_param_name
                         or "absolute_pos_embed" in module_param_name
                 ):
-                    print(module_param_name)
+                    # print(module_param_name)
                     hyperparams["weight_decay"] = 0.0
                 if isinstance(module, norm_module_types):
                     hyperparams["weight_decay"] = weight_decay_norm
@@ -234,7 +235,7 @@ class Trainer(DefaultTrainer):
                     results_i
                 )
                 logger.info("Evaluation results for {} in csv format:".format(dataset_name))
-                print_csv_format(results_i)
+                # print_csv_format(results_i)
 
         if len(results) == 1:
             results = list(results.values())[0]
@@ -245,6 +246,7 @@ class Trainer(DefaultTrainer):
         logger = logging.getLogger("detectron2.trainer")
         # In the end of training, run an evaluation with TTA.
         logger.info("Running inference with test-time augmentation ...")
+        model = LongVideo_inference_model(cfg, model)
         model = SemanticSegmentorWithTTA_video(cfg, model)
         evaluators = [
             cls.build_evaluator(
@@ -284,7 +286,10 @@ def main(args):
         DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
             cfg.MODEL.WEIGHTS, resume=args.resume
         )
+
+        # model = LongVideo_inference_model(cfg, model)
         # res = Trainer.test(cfg, model)
+
         if cfg.TEST.AUG.ENABLED:
             # raise NotImplementedError
             # res.update(Trainer.test_with_TTA(cfg, model))

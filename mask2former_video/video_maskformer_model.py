@@ -53,6 +53,7 @@ class VideoMaskFormer(nn.Module):
             num_frames,
             # test
             test_with_TTA,
+
     ):
         """
         Args:
@@ -165,7 +166,7 @@ class VideoMaskFormer(nn.Module):
     def device(self):
         return self.pixel_mean.device
 
-    def forward(self, batched_inputs, use_TTA=False):
+    def forward(self, batched_inputs, use_TTA=False, on_gpu=False):
         """
         Args:
             batched_inputs: a list, batched outputs of :class:`DatasetMapper`.
@@ -219,6 +220,7 @@ class VideoMaskFormer(nn.Module):
         else:
             mask_cls_results = outputs["pred_logits"]
             mask_pred_results = outputs["pred_masks"]
+            qurry_feat = outputs['qurry_feature']
 
             mask_cls_result = mask_cls_results[0]
 
@@ -235,7 +237,6 @@ class VideoMaskFormer(nn.Module):
                 print('copying masks from gpu to cpu')
                 mask_cls_result = mask_cls_result.cpu().float()
 
-
             torch.cuda.empty_cache()
             gc.collect()
 
@@ -245,8 +246,8 @@ class VideoMaskFormer(nn.Module):
             height = input_per_image.get("height", image_size[0])  # raw image size before data augmentation
             width = input_per_image.get("width", image_size[1])
 
-            return retry_if_cuda_oom(self.inference_video)(mask_cls_result, mask_pred_result, image_size, height, width,
-                                                           use_TTA)
+            return retry_if_cuda_oom(self.inference_video)(mask_cls_result, mask_pred_result, qurry_feat, image_size,
+                                                           height, width, use_TTA=use_TTA, on_gpu=on_gpu)
 
     def prepare_targets(self, targets, images):
         h_pad, w_pad = images.tensor.shape[-2:]
@@ -276,17 +277,23 @@ class VideoMaskFormer(nn.Module):
 
         return gt_instances
 
-    def inference_video(self, pred_cls, pred_masks, img_size, output_height, output_width, use_TTA=False):
+    def inference_video(self, pred_cls, pred_masks, q_feature, img_size, output_height, output_width, use_TTA=False,
+                        on_gpu=False):
         if len(pred_cls) > 0:
             # re-scoring
             scores = self.re_scoring(pred_cls, pred_masks)
-            labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)  #([4000,])
+            labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(
+                self.num_queries, 1).flatten(0, 1)  # ([4000,])
 
             # keep top-10 predictions
             scores_per_image, topk_indices = scores.flatten(0, 1).topk(10, sorted=False)
             labels_per_image = labels[topk_indices]
             topk_indices = topk_indices // self.sem_seg_head.num_classes
+
             pred_masks = pred_masks[topk_indices]  # [10, 36, 360, 640]
+
+            q_feature = q_feature[topk_indices]
+
             pred_masks = pred_masks[:, :, : img_size[0], : img_size[1]]
             pred_masks = F.interpolate(
                 pred_masks, size=(output_height, output_width), mode="bilinear", align_corners=False
@@ -298,11 +305,17 @@ class VideoMaskFormer(nn.Module):
 
             out_scores = scores_per_image.tolist()
             out_labels = labels_per_image.tolist()
-            out_masks = [m for m in masks.cpu()]
+            '''continue inference on clips by gpu'''
+            if not on_gpu:
+                out_masks = [m for m in masks.cpu()]
+                q_feature = q_feature.cpu()
+            else:
+                out_masks = [m for m in masks]
         else:
             out_scores = []
             out_labels = []
             out_masks = []
+            q_feature = None
 
         torch.cuda.empty_cache()
         gc.collect()
@@ -312,6 +325,7 @@ class VideoMaskFormer(nn.Module):
             "pred_scores": out_scores,  # [float x 10]
             "pred_labels": out_labels,  # [int x 10]
             "pred_masks": out_masks,  # [(f, H, W) x 10]
+            'qurry_feature': q_feature,
         }
 
         return video_output
@@ -333,13 +347,15 @@ class VideoMaskFormer(nn.Module):
         # high confidence value (hcv)
         inst_hcv_crs_frms = torch.sum(mask_logits * inst_hcm_crs_frms, dim=[2, 3]).to(
             dtype=torch.float32)  # [num_query, num_frame]
-        inst_hcm_num_crs_frms = torch.clamp(torch.sum(inst_hcm_crs_frms, dim=[2, 3]).to(dtype=torch.float32), min=1e-6)  # [num_query, num_frame]
+        inst_hcm_num_crs_frms = torch.clamp(torch.sum(inst_hcm_crs_frms, dim=[2, 3]).to(dtype=torch.float32),
+                                            min=1e-6)  # [num_query, num_frame]
 
         instance_pixel_scores = torch.mean(inst_hcv_crs_frms / inst_hcm_num_crs_frms, dim=1)  # [num_query, 1]
         instance_pixel_scores = torch.stack([instance_pixel_scores] * self.sem_seg_head.num_classes, dim=1).squeeze(-1)
 
         scores = torch.pow(pred_logits * instance_pixel_scores, 1 / 2)
         return scores
+
 
 def find_fg_bboxes(logits, thr):
     '''
@@ -379,7 +395,7 @@ def find_fg_bboxes(logits, thr):
                 for ind in range(bboxes.shape[0]):
                     x, y, w, h = bboxes[ind, :]
                     tmp = np.ones((h, w))
-                    binary_mask[y:y+h, x:x+w] = binary_mask[y:y+h, x:x+w] * tmp
+                    binary_mask[y:y + h, x:x + w] = binary_mask[y:y + h, x:x + w] * tmp
 
                 binary_masks[seq_id][frame_id] = binary_mask
 

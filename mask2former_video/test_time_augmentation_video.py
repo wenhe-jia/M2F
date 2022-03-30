@@ -58,7 +58,8 @@ class SemanticSegmentorWithTTA_video(nn.Module):
         """
         Same input/output format as :meth:`SemanticSegmentor.forward`
         """
-
+        self.model.train(self.training)
+        self.model_cpu.train(self.training)
         # x={'height': 720, 'width': 1280, 'length': 36, 'video_id': 1, 'image': [tensor,...],'instances': [], 'file_names': []}
         result = self._inference_one_video(batched_inputs[0])
 

@@ -430,9 +430,10 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
 
             outputs_class, outputs_mask, attn_mask = self.forward_prediction_heads(output, mask_features,
                                                                                    attn_mask_target_size=size_list[(i + 1) % self.num_feature_levels])
+
+
             predictions_class.append(outputs_class)
             predictions_mask.append(outputs_mask)
-
 
         assert len(predictions_class) == self.num_layers + 1
 
@@ -441,10 +442,12 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
             'pred_masks': predictions_mask[-1],
             'aux_outputs': self._set_aux_loss(
                 predictions_class if self.mask_classification else None, predictions_mask
-            )
+            ),
+            'qurry_feature': output.squeeze(1)
         }
 
         return out
+
 
     def forward_prediction_heads(self, output, mask_features, attn_mask_target_size):
         decoder_output = self.decoder_norm(output)
@@ -466,6 +469,7 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
         attn_mask = attn_mask.detach()
 
         return outputs_class, outputs_mask, attn_mask
+
 
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_seg_masks):
