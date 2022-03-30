@@ -281,7 +281,8 @@ class VideoMaskFormer(nn.Module):
                         on_gpu=False):
         if len(pred_cls) > 0:
             # re-scoring
-            scores = self.re_scoring(pred_cls, pred_masks)
+            # scores = self.re_scoring(pred_cls, pred_masks)
+            scores = F.softmax(pred_cls, dim=-1)[:, :-1]  # [100, 40]
             labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(
                 self.num_queries, 1).flatten(0, 1)  # ([4000,])
 
@@ -291,6 +292,8 @@ class VideoMaskFormer(nn.Module):
             topk_indices = topk_indices // self.sem_seg_head.num_classes
 
             pred_masks = pred_masks[topk_indices]  # [10, 36, 360, 640]
+
+            scores_per_image = self.re_scoring(scores_per_image, pred_masks)
 
             q_feature = q_feature[topk_indices]
 
@@ -337,7 +340,8 @@ class VideoMaskFormer(nn.Module):
         '''
         PIXEL_LOGITS_SCORE_TH = 0.2
 
-        pred_logits = F.softmax(pred_cls, dim=-1)[:, :-1]  # [100, 40]
+        # pred_logits = F.softmax(pred_cls, dim=-1)[:, :-1]  # [100, 40]
+        pred_logits = pred_cls
         mask_logits = torch.cat([_.sigmoid() for _ in torch.split(pred_masks, 1, dim=1)], dim=1)  # list[[N, H, W]]
         # mask_logits = find_fg_bboxes(mask_logits, pred_masks)
 
@@ -345,13 +349,13 @@ class VideoMaskFormer(nn.Module):
         inst_hcm_crs_frms = (mask_logits > PIXEL_LOGITS_SCORE_TH).to(dtype=torch.bool)  # [num_query, num_frame, H, W]
 
         # high confidence value (hcv)
-        inst_hcv_crs_frms = torch.sum(mask_logits * inst_hcm_crs_frms, dim=[2, 3]).to(
-            dtype=torch.float32)  # [num_query, num_frame]
-        inst_hcm_num_crs_frms = torch.clamp(torch.sum(inst_hcm_crs_frms, dim=[2, 3]).to(dtype=torch.float32),
+        inst_hcv_crs_frms = torch.sum(mask_logits * inst_hcm_crs_frms, dim=[2, 3])#.to(
+            # dtype=torch.float32)  # [num_query, num_frame]
+        inst_hcm_num_crs_frms = torch.clamp(torch.sum(inst_hcm_crs_frms, dim=[2, 3]).float(),
                                             min=1e-6)  # [num_query, num_frame]
 
         instance_pixel_scores = torch.mean(inst_hcv_crs_frms / inst_hcm_num_crs_frms, dim=1)  # [num_query, 1]
-        instance_pixel_scores = torch.stack([instance_pixel_scores] * self.sem_seg_head.num_classes, dim=1).squeeze(-1)
+        instance_pixel_scores = torch.stack([instance_pixel_scores], dim=1).squeeze(-1)# * self.sem_seg_head.num_classes
 
         scores = torch.pow(pred_logits * instance_pixel_scores, 1 / 2)
         return scores
