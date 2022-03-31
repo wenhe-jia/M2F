@@ -10,3 +10,4 @@ def add_maskformer2_video_config(cfg):
     cfg.INPUT.SAMPLING_FRAME_RANGE = 20
     cfg.INPUT.SAMPLING_FRAME_SHUFFLE = False
     cfg.INPUT.AUGMENTATIONS = [] # "brightness", "contrast", "saturation", "rotation"
+    cfg.TEST.AUG.REVERSE=False

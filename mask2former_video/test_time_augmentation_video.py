@@ -18,6 +18,7 @@ from pycocotools import mask as maskUtils
 from detectron2.data.detection_utils import read_image
 from .modeling.test_time_augmentation import DatasetMapperTTA_video
 from .utils.memory import retry_if_cuda_oom
+from detectron2.utils.logger import _log_api_usage
 
 __all__ = [
     "SemanticSegmentorWithTTA_video",
@@ -53,6 +54,7 @@ class SemanticSegmentorWithTTA_video(nn.Module):
 
         self.tta_mapper = tta_mapper
         self.batch_size = batch_size
+        _log_api_usage("TTA_video." + self.__class__.__name__)
 
     def __call__(self, batched_inputs):
         """
@@ -84,7 +86,7 @@ class SemanticSegmentorWithTTA_video(nn.Module):
         Returns:
             dict: one output dict
         """
-
+        logger=logging.getLogger(__name__)
         orig_shape = (input["height"], input["width"])
         augmented_inputs, tfms = self._get_augmented_inputs(input)
 
@@ -93,6 +95,14 @@ class SemanticSegmentorWithTTA_video(nn.Module):
         final_labels = None
         count_predictions = 0
         for inputt, tfm in zip(augmented_inputs, tfms):  # one input for one video
+            # if 'reverse' in tfm:
+            #     tfm=tfm.transforms
+            #     print(tfm)
+            #     tfm.remove('reverse')
+            #     print(tfm)
+            #     sys.exit()
+            # else:
+            #     continue
             count_predictions += 1
             with torch.no_grad():
 
@@ -101,18 +111,20 @@ class SemanticSegmentorWithTTA_video(nn.Module):
                 except RuntimeError as e:
                     if "CUDA out of memory. " in str(e):
                         # device = torch.cuda.current_device()
-                        print('Attemping to inference on cpu....',end='')
+                        logger.info('Attemping to inference on cpu....')
                         tc1 = time.time()
                         # self.model = self.model.to(torch.device('cpu'))
                         out = self.model_cpu([inputt], use_TTA=True)
                         tc2 = time.time()
-                        print('inference time on cpu: {:.2f} s'.format(tc2 - tc1) )
+                        logger.info('inference time on cpu: {:.2f} s'.format(tc2 - tc1) )
 
                         # self.model = self.model.to(torch.device('cuda:' + str(device)))
                     else:
                         raise
 
                 if final_predictions is None:
+                    if 'reverse' in tfm.transforms:
+                        out["pred_masks"] = [torch.flip(_ma,dims=[0]) for _ma in out["pred_masks"]]
                     if any(isinstance(t, HFlipTransform) for t in tfm.transforms):
                         final_predictions = self._flip_final_predictions(out.pop("pred_masks"))
                     else:
@@ -120,6 +132,8 @@ class SemanticSegmentorWithTTA_video(nn.Module):
                     final_labels = out.pop("pred_labels")
                     final_scores = out.pop("pred_scores")
                 else:
+                    if 'reverse' in tfm.transforms:
+                        out["pred_masks"] = [torch.flip(_ma,dims=[0]) for _ma in out["pred_masks"]]
                     if any(isinstance(t, HFlipTransform) for t in tfm.transforms):
                         pred_tmp = self._flip_final_predictions(out.pop("pred_masks"))
                     else:

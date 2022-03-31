@@ -18,6 +18,7 @@ from detectron2.data.transforms import (
     ResizeShortestEdge,
     ResizeTransform,
     apply_augmentations,
+    Augmentation,
 )
 from detectron2.structures import Boxes, Instances
 
@@ -34,7 +35,7 @@ class DatasetMapperTTA_video:
     """
 
     @configurable
-    def __init__(self, min_sizes: List[int], max_size: int, flip: bool):
+    def __init__(self, min_sizes: List[int], max_size: int, flip: bool, reverse: bool):
         """
         Args:
             min_sizes: list of short-edge size to resize the image to
@@ -44,6 +45,7 @@ class DatasetMapperTTA_video:
         self.min_sizes = min_sizes
         self.max_size = max_size
         self.flip = flip
+        self.reverse = reverse
 
     @classmethod
     def from_config(cls, cfg):
@@ -51,6 +53,7 @@ class DatasetMapperTTA_video:
             "min_sizes": cfg.TEST.AUG.MIN_SIZES,
             "max_size": cfg.TEST.AUG.MAX_SIZE,
             "flip": cfg.TEST.AUG.FLIP,
+            "reverse": cfg.TEST.AUG.REVERSE,
         }
 
     def __call__(self, dataset_dict):
@@ -68,13 +71,27 @@ class DatasetMapperTTA_video:
         # Create all combinations of augmentations to use
         aug_candidates = []  # each element is a list[Augmentation]
         for min_size in self.min_sizes:
+            tmp_list = []
             resize = ResizeShortestEdge(min_size, self.max_size)
+            tmp_list.append(resize)
             aug_candidates.append([resize])  # resize only
             if self.flip:
                 flip = RandomFlip(prob=1.0)
+                tmp_list.append(flip)
                 aug_candidates.append([resize, flip])  # resize + flip
+            if self.reverse:
+                tmp_list.append('reverse')
+                if self.flip:
+                    aug_candidates.append([resize, 'reverse'])  # resize + reverse
+            if self.flip and self.reverse:
+                aug_candidates.append(tmp_list)  # resize + reverse + flip
+
         ret = []
         for aug in aug_candidates:
+            isreverse = 'reverse' in aug
+            if isreverse:
+                aug.remove('reverse')
+
             for nf, frame in enumerate(dataset_dict["image"]):
 
                 # process the input
@@ -98,6 +115,10 @@ class DatasetMapperTTA_video:
                     dic["image"] = []
 
                 dic["image"].append(torch_image)
+            if isreverse:
+                dic["transforms"] += 'reverse'
+                dic["image"] = dic["image"][::-1]
+
             ret.append(dic)
         # print('lllllllll', len(ret))
         # print(len(ret[0]['image']))

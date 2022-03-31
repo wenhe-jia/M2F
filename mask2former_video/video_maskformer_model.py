@@ -24,8 +24,9 @@ from detectron2.structures import Boxes, ImageList, Instances, BitMasks
 from .modeling.criterion import VideoSetCriterion
 from .modeling.matcher import VideoHungarianMatcher
 from .utils.memory import retry_if_cuda_oom
+from detectron2.utils.logger import _log_api_usage
 
-logger = logging.getLogger(__name__)
+
 
 
 @META_ARCH_REGISTRY.register()
@@ -98,6 +99,7 @@ class VideoMaskFormer(nn.Module):
         self.num_frames = num_frames
         self.test_with_TTA = test_with_TTA
 
+        _log_api_usage("VideoMaskFormer." + self.__class__.__name__)
     @classmethod
     def from_config(cls, cfg):
         backbone = build_backbone(cfg)
@@ -167,6 +169,7 @@ class VideoMaskFormer(nn.Module):
         return self.pixel_mean.device
 
     def forward(self, batched_inputs, use_TTA=False, on_gpu=False):
+        logger=logging.getLogger(__name__)
         """
         Args:
             batched_inputs: a list, batched outputs of :class:`DatasetMapper`.
@@ -234,7 +237,7 @@ class VideoMaskFormer(nn.Module):
 
             # copy outputs from gpu to cpu when re-scoring
             if not mask_pred_result.is_cuda:
-                print('copying masks from gpu to cpu')
+                logger.info('copying masks from gpu to cpu')
                 mask_cls_result = mask_cls_result.cpu().float()
 
             torch.cuda.empty_cache()
@@ -313,7 +316,11 @@ class VideoMaskFormer(nn.Module):
                 out_masks = [m for m in masks.cpu()]
                 q_feature = q_feature.cpu()
             else:
-                out_masks = [m for m in masks]
+                if not masks.is_cuda:
+                    out_masks = [m.to(self.device) for m in masks]
+                    q_feature=q_feature.to(self.device)
+                else:
+                    out_masks = [m for m in masks]
         else:
             out_scores = []
             out_labels = []

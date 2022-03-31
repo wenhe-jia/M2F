@@ -64,6 +64,8 @@ class LongVideo_inference_model(nn.Module):
                 if "CUDA out of memory. " in str(e):
                     assert n_c < 10, 'cuda oom occurs even inference on 10 clips'
                     continue
+                else:
+                    raise e
 
         # clips = self._divide_videos(inputs[0], num_clips)
         # result = self._inference_clips(clips)
