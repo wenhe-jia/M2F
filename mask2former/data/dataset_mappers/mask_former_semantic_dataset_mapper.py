@@ -13,6 +13,8 @@ from detectron2.data import transforms as T
 from detectron2.projects.point_rend import ColorAugSSDTransform
 from detectron2.structures import BitMasks, Instances
 
+import random
+
 __all__ = ["MaskFormerSemanticDatasetMapper"]
 
 
@@ -58,6 +60,13 @@ class MaskFormerSemanticDatasetMapper:
         mode = "training" if is_train else "inference"
         logger.info(f"[{self.__class__.__name__}] Augmentations used in {mode}: {augmentations}")
 
+        self.hflip_prob = 0.5
+        self.cihp_semseg_flip_map = (
+            (14, 15),  # ("Left-arm", "Right-arm"),
+            (16, 17),  # ("Left-leg", "Right-leg"),
+            (18, 19),  # ("Left-shoe", "Right-shoe"),
+        )
+
     @classmethod
     def from_config(cls, cfg, is_train=True):
         # Build augmentation
@@ -79,7 +88,7 @@ class MaskFormerSemanticDatasetMapper:
             )
         if cfg.INPUT.COLOR_AUG_SSD:
             augs.append(ColorAugSSDTransform(img_format=cfg.INPUT.FORMAT))
-        augs.append(T.RandomFlip())
+        # augs.append(T.RandomFlip())
 
         # Assume always applies to the training set.
         dataset_names = cfg.DATASETS.TRAIN
@@ -126,6 +135,18 @@ class MaskFormerSemanticDatasetMapper:
         aug_input, transforms = T.apply_transform_gens(self.tfm_gens, aug_input)
         image = aug_input.image
         sem_seg_gt = aug_input.sem_seg
+
+        # perform random h_flip
+        do_rnd_hflip = random.random() < self.hflip_prob
+        if do_rnd_hflip:
+            image = np.flip(image, axis=1)
+            sem_seg_gt = sem_seg_gt[:, ::-1]
+            sem_seg_gt = np.ascontiguousarray(sem_seg_gt)
+            for ori_label, new_label in self.cihp_semseg_flip_map:
+                left = sem_seg_gt == ori_label
+                right = sem_seg_gt == new_label
+                sem_seg_gt[left] = new_label
+                sem_seg_gt[right] = ori_label
 
         # Pad image and segmentation label here!
         image = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))
