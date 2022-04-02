@@ -80,7 +80,6 @@ class TIDEExample:
             #     if _g['mask']==None:
             #         gt.remove(_g)
 
-
             self.gt_iou = mask_utils.iou(
                 detections,
                 [x[det_type] for x in gt],
@@ -171,7 +170,7 @@ class TIDERun:
     _temp_vars = ['best_score', 'best_id', 'used', 'matched_with', '_idx', 'usable']
 
     def __init__(self, gt: Data, preds: Data, pos_thresh: float, bg_thresh: float, mode: str, max_dets: int,
-                 run_errors: bool = True):
+                 run_errors: bool = True, isvideo: bool = False):
         self.gt = gt
         self.preds = preds
 
@@ -188,7 +187,7 @@ class TIDERun:
         self.mode = mode
         self.max_dets = max_dets
         self.run_errors = run_errors
-
+        self.isvideo = isvideo
         self._run()
 
     def _run(self):
@@ -246,7 +245,7 @@ class TIDERun:
                         self.false_negatives[truth['class']].append(truth)
             return
 
-        ex = TIDEExample(preds, gt, self.pos_thresh, self.mode, self.max_dets, self.run_errors)
+        ex = TIDEExample(preds, gt, self.pos_thresh, self.mode, self.max_dets, self.run_errors, self.isvideo)
         preds = ex.preds  # In case the number of predictions was restricted to the max
 
         for pred_idx, pred in enumerate(preds):
@@ -454,10 +453,12 @@ class TIDE:
     BOX = 'bbox'
     MASK = 'mask'
 
-    def __init__(self, pos_threshold: float = 0.5, background_threshold: float = 0.1, mode: str = BOX):
+    def __init__(self, pos_threshold: float = 0.5, background_threshold: float = 0.1, mode: str = BOX,
+                 isvideo: bool = False):
         self.pos_thresh = pos_threshold
         self.bg_thresh = background_threshold
         self.mode = mode
+        self.isvideo=isvideo
 
         self.pos_thresh_int = int(self.pos_thresh * 100)
 
@@ -477,7 +478,7 @@ class TIDE:
         mode = self.mode if mode is None else mode
         name = preds.name if name is None else name
 
-        run = TIDERun(gt, preds, pos_thresh, bg_thresh, mode, gt.max_dets, use_for_errors)
+        run = TIDERun(gt, preds, pos_thresh, bg_thresh, mode, gt.max_dets, use_for_errors,self.isvideo)
 
         if use_for_errors:
             self.runs[name] = run
