@@ -14,6 +14,8 @@ from detectron2.modeling import SEM_SEG_HEADS_REGISTRY
 from ..transformer_decoder.maskformer_transformer_decoder import build_transformer_decoder
 from ..pixel_decoder.fpn import build_pixel_decoder
 
+from ..solov2.heads import SOLOv2InsHead, SOLOv2MaskHead
+
 
 @SEM_SEG_HEADS_REGISTRY.register()
 class MaskFormerHead(nn.Module):
@@ -84,6 +86,37 @@ class MaskFormerHead(nn.Module):
 
         self.num_classes = num_classes
 
+        # image insseg
+        solo_ins_head_cfg = {
+            "num_classes": num_classes,
+            "num_kernels": 256,  # cfg.MODEL.SOLOV2.NUM_KERNELS
+            "num_grids": [36, 24, 16],  # cfg.MODEL.SOLOV2.NUM_GRIDS, [40, 36, 24, 16, 12]
+            "instance_in_features": ["p3", "p4", "p5"],
+            # cfg.MODEL.SOLOV2.INSTANCE_IN_FEATURES, ["p2", "p3", "p4", "p5", "p6"]
+            "instance_strides": [8, 16, 32],  # cfg.MODEL.SOLOV2.FPN_INSTANCE_STRIDES, [8, 8, 16, 32, 32]
+            "instance_in_channels": 256,  # cfg.MODEL.SOLOV2.INSTANCE_IN_CHANNELS  # = fpn.
+            "instance_channels": 512,  # # cfg.MODEL.SOLOV2.INSTANCE_CHANNELS
+            "type_dcn": "DCN",  # Convolutions to use in the towers, cfg.MODEL.SOLOV2.TYPE_DCN
+            "num_levels": 3,  # len(instance_in_features)
+            "num_instance_convs": 4,  # cfg.MODEL.SOLOV2.NUM_INSTANCE_CONVS
+            "use_dcn_in_instance": False,  # cfg.MODEL.SOLOV2.USE_DCN_IN_INSTANCE
+            "use_coord_conv": True,  # cfg.MODEL.SOLOV2.USE_COORD_CONV
+            "norm": "GN",  # None if cfg.MODEL.SOLOV2.NORM == "none" else cfg.MODEL.SOLOV2.NORM  # 'GN'
+            "prior_prob": 0.01  # cfg.MODEL.SOLOV2.PRIOR_PROB
+        }
+        solo_mask_head_cfg = {
+            "mask_on": True,  # cfg.MODEL.MASK_ON
+            "num_masks": 256,  # # cfg.MODEL.SOLOV2.NUM_MASKS
+            "mask_in_features": ["p3", "p4", "p5"],  # cfg.MODEL.SOLOV2.MASK_IN_FEATURES, ["p2", "p3", "p4", "p5"]
+            "mask_in_channels": 256,  # cfg.MODEL.SOLOV2.MASK_IN_CHANNELS
+            "mask_channels": 128,  # cfg.MODEL.SOLOV2.MASK_CHANNELS
+            "num_levels": 3,  # len(mask_in_features)
+            "norm": "GN"  # None if cfg.MODEL.SOLOV2.NORM == "none" else cfg.MODEL.SOLOV2.NORM,  'GN'
+        }
+
+        self.solo_ins_head = SOLOv2InsHead(solo_ins_head_cfg)
+        self.solo_mask_head = SOLOv2MaskHead(solo_mask_head_cfg)
+
     @classmethod
     def from_config(cls, cfg, input_shape: Dict[str, ShapeSpec]):
         # figure out in_channels to transformer predictor
@@ -112,11 +145,20 @@ class MaskFormerHead(nn.Module):
             ),
         }
 
-    def forward(self, features, mask=None):
-        return self.layers(features, mask)
+    def forward(self, features, image_sizes, targets, mask=None):
+        return self.layers(features, image_sizes, targets, mask)
 
-    def layers(self, features, mask=None):
+    def layers(self, features, image_sizes, targets, mask=None):
         mask_features, transformer_encoder_features, multi_scale_features = self.pixel_decoder.forward_features(features)
+
+        # solov2 image insseg
+        ms_features_reverse = multi_scale_features.reverse()  # [res5(1/32), res4(1/16), res3(1/8)] --> [res3(1/8), res4(1/16), res5(1/32)]
+        solov2_cate_pred, solov2_kernel_pred = self.ins_head(ms_features_reverse)
+        solov2_mask_pred = self.mask_head(ms_features_reverse)
+        selected_query = self.get_query(solov2_cate_pred, solov2_kernel_pred, solov2_mask_pred, image_sizes, targets)
+
+
+
         if self.transformer_in_feature == "multi_scale_pixel_decoder":
             predictions = self.predictor(multi_scale_features, mask_features, mask)
         else:
@@ -130,3 +172,6 @@ class MaskFormerHead(nn.Module):
             else:
                 predictions = self.predictor(features[self.transformer_in_feature], mask_features, mask)
         return predictions
+
+    def get_query(self, pred_cates, pred_kernels, pred_masks, cur_sizes, images):
+        return None

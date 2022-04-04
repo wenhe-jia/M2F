@@ -185,7 +185,7 @@ class VideoMaskFormer(nn.Module):
         images = ImageList.from_tensors(images, self.size_divisibility)
 
         features = self.backbone(images.tensor)
-        outputs = self.sem_seg_head(features)
+        outputs = self.sem_seg_head(features, images.image_sizes, batched_inputs)
 
         if self.training:
             # mask classification target

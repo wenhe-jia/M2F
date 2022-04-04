@@ -318,9 +318,9 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
 
         self.num_queries = num_queries
         # learnable query features
-        self.query_feat = nn.Embedding(num_queries, hidden_dim)
+        # self.query_feat = nn.Embedding(num_queries, hidden_dim)
         # learnable query p.e.
-        self.query_embed = nn.Embedding(num_queries, hidden_dim)
+        # self.query_embed = nn.Embedding(num_queries, hidden_dim)
 
         # level embedding (we always use 3 scales)
         self.num_feature_levels = 3
@@ -337,6 +337,7 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
         if self.mask_classification:
             self.class_embed = nn.Linear(hidden_dim, num_classes + 1)
         self.mask_embed = MLP(hidden_dim, hidden_dim, mask_dim, 3)
+
 
     @classmethod
     def from_config(cls, cfg, in_channels, mask_classification):
@@ -368,6 +369,9 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
         return ret
 
     def forward(self, x, mask_features, mask = None):
+        # x: multi-scale features in [res5(1/32), res4(1/16), res3(1/8)]
+        # mask_features: res2(1/4)
+
         bt, c_m, h_m, w_m = mask_features.shape
         bs = bt // self.num_frames if self.training else 1
         t = bt // bs
@@ -393,8 +397,8 @@ class VideoMultiScaleMaskedTransformerDecoder(nn.Module):
             src[-1] = src[-1].view(bs, t, c, hw).permute(1, 3, 0, 2).flatten(0, 1)
 
         # QxNxC
-        query_embed = self.query_embed.weight.unsqueeze(1).repeat(1, bs, 1)
-        output = self.query_feat.weight.unsqueeze(1).repeat(1, bs, 1)
+        # query_embed = self.query_embed.weight.unsqueeze(1).repeat(1, bs, 1)
+        # output = self.query_feat.weight.unsqueeze(1).repeat(1, bs, 1)
 
         predictions_class = []
         predictions_mask = []
