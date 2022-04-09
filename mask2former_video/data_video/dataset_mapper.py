@@ -7,6 +7,7 @@ import random
 import numpy as np
 from typing import List, Union
 import torch
+import sys
 
 from detectron2.config import configurable
 from detectron2.structures import (
@@ -124,16 +125,16 @@ class YTVISDatasetMapper:
 
     @configurable
     def __init__(
-        self,
-        is_train: bool,
-        *,
-        augmentations: List[Union[T.Augmentation, T.Transform]],
-        image_format: str,
-        use_instance_mask: bool = False,
-        sampling_frame_num: int = 2,
-        sampling_frame_range: int = 5,
-        sampling_frame_shuffle: bool = False,
-        num_classes: int = 40,
+            self,
+            is_train: bool,
+            *,
+            augmentations: List[Union[T.Augmentation, T.Transform]],
+            image_format: str,
+            use_instance_mask: bool = False,
+            sampling_frame_num: int = 2,
+            sampling_frame_range: int = 5,
+            sampling_frame_shuffle: bool = False,
+            num_classes: int = 40,
     ):
         """
         NOTE: this interface is experimental.
@@ -144,14 +145,14 @@ class YTVISDatasetMapper:
             use_instance_mask: whether to process instance segmentation annotations, if available
         """
         # fmt: off
-        self.is_train               = is_train
-        self.augmentations          = T.AugmentationList(augmentations)
-        self.image_format           = image_format
-        self.use_instance_mask      = use_instance_mask
-        self.sampling_frame_num     = sampling_frame_num
-        self.sampling_frame_range   = sampling_frame_range
+        self.is_train = is_train
+        self.augmentations = T.AugmentationList(augmentations)
+        self.image_format = image_format
+        self.use_instance_mask = use_instance_mask
+        self.sampling_frame_num = sampling_frame_num
+        self.sampling_frame_range = sampling_frame_range
         self.sampling_frame_shuffle = sampling_frame_shuffle
-        self.num_classes            = num_classes
+        self.num_classes = num_classes
         # fmt: on
         logger = logging.getLogger(__name__)
         mode = "training" if is_train else "inference"
@@ -193,11 +194,11 @@ class YTVISDatasetMapper:
         if self.is_train:
             ref_frame = random.randrange(video_length)
 
-            start_idx = max(0, ref_frame-self.sampling_frame_range)
-            end_idx = min(video_length, ref_frame+self.sampling_frame_range + 1)
+            start_idx = max(0, ref_frame - self.sampling_frame_range)
+            end_idx = min(video_length, ref_frame + self.sampling_frame_range + 1)
 
             selected_idx = np.random.choice(
-                np.array(list(range(start_idx, ref_frame)) + list(range(ref_frame+1, end_idx))),
+                np.array(list(range(start_idx, ref_frame)) + list(range(ref_frame + 1, end_idx))),
                 self.sampling_frame_num - 1,
             )
             selected_idx = selected_idx.tolist() + [ref_frame]
@@ -270,7 +271,7 @@ class YTVISDatasetMapper:
             else:
                 instances.gt_masks = BitMasks(torch.empty((0, *image_shape)))
             dataset_dict["instances"].append(instances)
-        
+
         # print('+ dataset dict: ', type(dataset_dict), dataset_dict.keys())
         # for k, v in dataset_dict.items():
         #     print('++ ', k, ': ', type(v))
@@ -310,12 +311,13 @@ def convert_coco_poly_to_mask(segmentations, height, width):
 class ConvertCocoPolysToMask(object):
     def __init__(self, return_masks=False):
         self.return_masks = return_masks
-        #ytvis19
+        # ytvis19
         # self.category_map = {1:1, 2:21, 3:6, 4:21, 5:28, 7:17, 8:29, 9:34, 17:14, 18:8, 19:18, 21:15, 22:32, 23:20, 24:30, 25:22, 36:33, 41:5, 42:27, 43:40, 74:24}
         # ytvis21, dataset category id map
         # self.category_map = {1:26, 2:23, 3:5, 4:23, 5:1, 7:36, 8:37, 9:4, 16:3, 17:6, 18:9, 19:19, 21:7, 22:12, 23:2, 24:40, 25:18, 36:31, 41:29, 42:33, 43:34, 74:24}
         # ytvis, loaded category id map
-        self.category_map = {0:25, 1:22, 2:4, 3:22, 4:0, 6:35, 7:36, 8:3, 14:2, 15:5, 16:8, 17:18, 19:6, 20:11, 21:1, 22:39, 23:17, 31:30, 36:28, 37:32, 38:33, 64:23}
+        self.category_map = {0: 25, 1: 22, 2: 4, 3: 22, 4: 0, 6: 35, 7: 36, 8: 3, 14: 2, 15: 5, 16: 8, 17: 18, 19: 6,
+                             20: 11, 21: 1, 22: 39, 23: 17, 31: 30, 36: 28, 37: 32, 38: 33, 64: 23}
 
     def __call__(self, image, target):
         w, h = image.size
@@ -414,18 +416,18 @@ class YTVISCOCOJointDatasetMapper:
 
     @configurable
     def __init__(
-        self,
-        is_train: bool,
-        *,
-        augmentations: List[Union[T.Augmentation, T.Transform]],
-        image_format: str,
-        use_instance_mask: bool = False,
-        sampling_frame_num: int = 2,
-        sampling_frame_range: int = 5,
-        sampling_frame_shuffle: bool = False,
-        num_classes: int = 40,
-        train_scales: tuple = (),
-        train_size_max: int = 1333
+            self,
+            is_train: bool,
+            *,
+            augmentations: List[Union[T.Augmentation, T.Transform]],
+            image_format: str,
+            use_instance_mask: bool = False,
+            sampling_frame_num: int = 2,
+            sampling_frame_range: int = 5,
+            sampling_frame_shuffle: bool = False,
+            num_classes: int = 40,
+            train_scales: tuple = (),
+            train_size_max: int = 1333
     ):
         """
         NOTE: this interface is experimental.
@@ -436,14 +438,14 @@ class YTVISCOCOJointDatasetMapper:
             use_instance_mask: whether to process instance segmentation annotations, if available
         """
         # fmt: off
-        self.is_train               = is_train
-        self.augmentations          = T.AugmentationList(augmentations)
-        self.image_format           = image_format
-        self.use_instance_mask      = use_instance_mask
-        self.sampling_frame_num     = sampling_frame_num
-        self.sampling_frame_range   = sampling_frame_range
+        self.is_train = is_train
+        self.augmentations = T.AugmentationList(augmentations)
+        self.image_format = image_format
+        self.use_instance_mask = use_instance_mask
+        self.sampling_frame_num = sampling_frame_num
+        self.sampling_frame_range = sampling_frame_range
         self.sampling_frame_shuffle = sampling_frame_shuffle
-        self.num_classes            = num_classes
+        self.num_classes = num_classes
 
         # for coco2seq
         self.train_scales = train_scales
@@ -495,7 +497,7 @@ class YTVISCOCOJointDatasetMapper:
         """
         # TODO consider examining below deepcopy as it costs huge amount of computations.
         dataset_dict = copy.deepcopy(dataset_dict)  # it will be modified by code below
-        # print('+ dataset_dict: ', dataset_dict)
+        # print('+ dataset_dict: ', dataset_dict.keys())
 
         if 'length' not in dataset_dict:  # coco pseudo video processing mode
             # print('load coco data ~~~~~~~~~~~~~')
@@ -503,8 +505,21 @@ class YTVISCOCOJointDatasetMapper:
             target = {'image_id': dataset_dict['image_id'], 'annotations': dataset_dict['annotations']}
 
             img, target = self.prepare(img, target)
+
+            if len(target['labels']) > 25:
+                target['labels'] = target['labels'][:25]
+                target['masks'] = target['masks'][:25]
+                target['boxes'] = target['boxes'][:25]
+
             seq_images, seq_instance_masks = [img], [target['masks'].numpy()]
             numpy_masks = target['masks'].numpy()
+
+            # if len(target['labels']) > 0 and len(target['labels']) <= 25:
+            #     pass
+            # elif len(target['labels']) == 0:
+            #     print('no objects in current coco image, idx: {}, filename: {}'.format(dataset_dict["image_id"], dataset_dict["file_name"]))
+
+
 
             numinst = len(numpy_masks)
             # print('-- num instance: ', numinst)
@@ -527,12 +542,7 @@ class YTVISCOCOJointDatasetMapper:
 
             if self.coco_augmentations is not None:
                 img, target = self.coco_augmentations(seq_images, target, self.num_frames)
-            # if len(target['labels']) > 0 and len(target['labels']) <= 25:
-            #     pass
-            # elif len(target['labels']) == 0:
-            #     print('no objects in current coco image, idx: {}, filename: {}'.format(dataset_dict["image_id"], dataset_dict["file_name"]))
-            # else:
-            #     target['labels'] = target['labels'][:25]
+
 
             for inst_id in range(len(target['boxes'])):
                 if target['masks'][inst_id].max() < 1:
@@ -560,8 +570,10 @@ class YTVISCOCOJointDatasetMapper:
             # print(img[0].size(), '-------')
             aug_h, aug_w = img[0].size()[1:]
             num_ins = int(target["boxes"].size()[0] / self.num_frames)
-            boxes = copy.deepcopy(target["boxes"]).reshape(num_ins, self.num_frames, target["boxes"].size()[-1])  # (num_instance, num_frame, 4)
-            masks = copy.deepcopy(target["masks"]).reshape(num_ins, self.num_frames, target["masks"].size()[1], target["masks"].size()[2])  # (num_instance, num_frame, H, W)
+            boxes = copy.deepcopy(target["boxes"]).reshape(num_ins, self.num_frames,
+                                                           target["boxes"].size()[-1])  # (num_instance, num_frame, 4)
+            masks = copy.deepcopy(target["masks"]).reshape(num_ins, self.num_frames, target["masks"].size()[1],
+                                                           target["masks"].size()[2])  # (num_instance, num_frame, H, W)
             for frame_idx in range(self.num_frames):
                 # create Instances object for current frame
                 instances_per_frame = Instances((aug_h, aug_w))
@@ -587,11 +599,11 @@ class YTVISCOCOJointDatasetMapper:
             if self.is_train:
                 ref_frame = random.randrange(video_length)
 
-                start_idx = max(0, ref_frame-self.sampling_frame_range)
-                end_idx = min(video_length, ref_frame+self.sampling_frame_range + 1)
+                start_idx = max(0, ref_frame - self.sampling_frame_range)
+                end_idx = min(video_length, ref_frame + self.sampling_frame_range + 1)
 
                 selected_idx = np.random.choice(
-                    np.array(list(range(start_idx, ref_frame)) + list(range(ref_frame+1, end_idx))),
+                    np.array(list(range(start_idx, ref_frame)) + list(range(ref_frame + 1, end_idx))),
                     self.sampling_frame_num - 1,
                 )
                 selected_idx = selected_idx.tolist() + [ref_frame]
@@ -674,6 +686,7 @@ class YTVISCOCOJointDatasetMapper:
         instance_masks = [instance_masks[i] for i in perm]
         return images, instance_masks
 
+
 class CocoClipDatasetMapper:
     """
     A callable which takes a COCO image which converts into multiple frames,
@@ -682,13 +695,13 @@ class CocoClipDatasetMapper:
 
     @configurable
     def __init__(
-        self,
-        is_train: bool,
-        *,
-        augmentations: List[Union[T.Augmentation, T.Transform]],
-        image_format: str,
-        use_instance_mask: bool = False,
-        sampling_frame_num: int = 2,
+            self,
+            is_train: bool,
+            *,
+            augmentations: List[Union[T.Augmentation, T.Transform]],
+            image_format: str,
+            use_instance_mask: bool = False,
+            sampling_frame_num: int = 2,
     ):
         """
         NOTE: this interface is experimental.
@@ -699,11 +712,11 @@ class CocoClipDatasetMapper:
             use_instance_mask: whether to process instance segmentation annotations, if available
         """
         # fmt: off
-        self.is_train               = is_train
-        self.augmentations          = T.AugmentationList(augmentations)
-        self.image_format           = image_format
-        self.use_instance_mask      = use_instance_mask
-        self.sampling_frame_num     = sampling_frame_num
+        self.is_train = is_train
+        self.augmentations = T.AugmentationList(augmentations)
+        self.image_format = image_format
+        self.use_instance_mask = use_instance_mask
+        self.sampling_frame_num = sampling_frame_num
         # fmt: on
         logger = logging.getLogger(__name__)
         mode = "training" if is_train else "inference"
