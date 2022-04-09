@@ -6,7 +6,6 @@ import os
 from PIL import Image
 
 from detectron2.data import DatasetCatalog, MetadataCatalog
-from detectron2.utils.file_io import PathManager
 
 
 CIHP_SEM_SEG_CATEGORIES = [
