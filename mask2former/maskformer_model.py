@@ -43,6 +43,9 @@ class MaskFormer(nn.Module):
         panoptic_on: bool,
         instance_on: bool,
         test_topk_per_image: int,
+        # evaluate parsing semseg metrics(mIoU) with insseg model
+        instance_to_semantic: bool,
+        ins2sem_score_thresh: float,
     ):
         """
         Args:
@@ -89,6 +92,9 @@ class MaskFormer(nn.Module):
         self.instance_on = instance_on
         self.panoptic_on = panoptic_on
         self.test_topk_per_image = test_topk_per_image
+        # evaluate parsing semseg metrics(mIoU) with insseg model
+        self.instance_to_semantic = instance_to_semantic
+        self.ins2sem_score_thresh = ins2sem_score_thresh
 
         if not self.semantic_on:
             assert self.sem_seg_postprocess_before_inference
@@ -158,6 +164,9 @@ class MaskFormer(nn.Module):
             "instance_on": cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON,
             "panoptic_on": cfg.MODEL.MASK_FORMER.TEST.PANOPTIC_ON,
             "test_topk_per_image": cfg.TEST.DETECTIONS_PER_IMAGE,
+            # evaluate parsing semseg metrics(mIoU) with insseg model
+            "instance_to_semantic": cfg.MODEL.MASK_FORMER.TEST.INSTANCE_TO_SEMANTIC,
+            "ins2sem_score_thresh": cfg.MODEL.MASK_FORMER.TEST.INS2SEM_SCORE_THR
         }
 
     @property
@@ -216,8 +225,8 @@ class MaskFormer(nn.Module):
                     losses.pop(k)
             return losses
         else:
-            mask_cls_results = outputs["pred_logits"]
-            mask_pred_results = outputs["pred_masks"]
+            mask_cls_results = outputs["pred_logits"]  # (B, Q, C+1)
+            mask_pred_results = outputs["pred_masks"]  # (B, Q, H, W)
             # upsample masks
             mask_pred_results = F.interpolate(
                 mask_pred_results,
@@ -234,30 +243,41 @@ class MaskFormer(nn.Module):
             ):
                 height = input_per_image.get("height", image_size[0])
                 width = input_per_image.get("width", image_size[1])
-                processed_results.append({})
+                processed_results.append({}) # for each image
 
-                if self.sem_seg_postprocess_before_inference:
+                if self.instance_to_semantic:
+                    # evaluate parsing semseg metrics(mIoU) with insseg model
                     mask_pred_result = retry_if_cuda_oom(sem_seg_postprocess)(
                         mask_pred_result, image_size, height, width
                     )
-                    mask_cls_result = mask_cls_result.to(mask_pred_result)
+                    mask_cls_result = mask_cls_result.to(mask_pred_result)  # change device as mask_pred_result
 
-                # semantic segmentation inference
-                if self.semantic_on:
-                    r = retry_if_cuda_oom(self.semantic_inference)(mask_cls_result, mask_pred_result)
-                    if not self.sem_seg_postprocess_before_inference:
-                        r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height, width)
+                    r = retry_if_cuda_oom(self.semseg_inference_for_insseg_model)(mask_cls_result, mask_pred_result)  # (C, H, W)
                     processed_results[-1]["sem_seg"] = r
 
-                # panoptic segmentation inference
-                if self.panoptic_on:
-                    panoptic_r = retry_if_cuda_oom(self.panoptic_inference)(mask_cls_result, mask_pred_result)
-                    processed_results[-1]["panoptic_seg"] = panoptic_r
-                
-                # instance segmentation inference
-                if self.instance_on:
-                    instance_r = retry_if_cuda_oom(self.instance_inference)(mask_cls_result, mask_pred_result)
-                    processed_results[-1]["instances"] = instance_r
+                else:
+                    if self.sem_seg_postprocess_before_inference:
+                        mask_pred_result = retry_if_cuda_oom(sem_seg_postprocess)(
+                            mask_pred_result, image_size, height, width
+                        )
+                        mask_cls_result = mask_cls_result.to(mask_pred_result)  # change device as mask_pred_result
+
+                    # semantic segmentation inference
+                    if self.semantic_on:
+                        r = retry_if_cuda_oom(self.semantic_inference)(mask_cls_result, mask_pred_result)  # (C, H, W)
+                        if not self.sem_seg_postprocess_before_inference:
+                            r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height, width)  # (C, H_org, W_org)
+                        processed_results[-1]["sem_seg"] = r
+
+                    # panoptic segmentation inference
+                    if self.panoptic_on:
+                        panoptic_r = retry_if_cuda_oom(self.panoptic_inference)(mask_cls_result, mask_pred_result)
+                        processed_results[-1]["panoptic_seg"] = panoptic_r
+
+                    # instance segmentation inference
+                    if self.instance_on:
+                        instance_r = retry_if_cuda_oom(self.instance_inference)(mask_cls_result, mask_pred_result)
+                        processed_results[-1]["instances"] = instance_r  # compiled in "Instances" structure
 
             return processed_results
 
@@ -278,7 +298,7 @@ class MaskFormer(nn.Module):
         return new_targets
 
     def semantic_inference(self, mask_cls, mask_pred):
-        mask_cls = F.softmax(mask_cls, dim=-1)[..., :-1]
+        mask_cls = F.softmax(mask_cls, dim=-1)[..., :-1]  # discard non-sense category
         mask_pred = mask_pred.sigmoid()
         semseg = torch.einsum("qc,qhw->chw", mask_cls, mask_pred)
         return semseg
@@ -342,19 +362,20 @@ class MaskFormer(nn.Module):
             return panoptic_seg, segments_info
 
     def instance_inference(self, mask_cls, mask_pred):
-        # mask_pred is already processed to have the same shape as original input
+        # mask_cls(Q, C)
+        # mask_pred(Q, H, W) is already processed to have the same shape as original input by func "sem_seg_postprocess"
         image_size = mask_pred.shape[-2:]
 
         # [Q, K]
-        scores = F.softmax(mask_cls, dim=-1)[:, :-1]
+        scores = F.softmax(mask_cls, dim=-1)[:, :-1]  # discard non-sense category
         labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)
         # scores_per_image, topk_indices = scores.flatten(0, 1).topk(self.num_queries, sorted=False)
         scores_per_image, topk_indices = scores.flatten(0, 1).topk(self.test_topk_per_image, sorted=False)
-        labels_per_image = labels[topk_indices]
+        labels_per_image = labels[topk_indices]  # (topk,), scores_per_image in same shape
 
         topk_indices = topk_indices // self.sem_seg_head.num_classes
         # mask_pred = mask_pred.unsqueeze(1).repeat(1, self.sem_seg_head.num_classes, 1).flatten(0, 1)
-        mask_pred = mask_pred[topk_indices]
+        mask_pred = mask_pred[topk_indices]  # (topk, H_org, W_org)
 
         # if this is panoptic segmentation, we only keep the "thing" classes
         if self.panoptic_on:
@@ -368,13 +389,70 @@ class MaskFormer(nn.Module):
 
         result = Instances(image_size)
         # mask (before sigmoid)
-        result.pred_masks = (mask_pred > 0).float()
-        result.pred_boxes = Boxes(torch.zeros(mask_pred.size(0), 4))
+        result.pred_masks = (mask_pred > 0).float()  # (topk, H_org, W_org), binary(float)
+        result.pred_boxes = Boxes(torch.zeros(mask_pred.size(0), 4))  # (topk, 4)
         # Uncomment the following to get boxes from masks (this is slow)
         # result.pred_boxes = BitMasks(mask_pred > 0).get_bounding_boxes()
 
         # calculate average mask prob
-        mask_scores_per_image = (mask_pred.sigmoid().flatten(1) * result.pred_masks.flatten(1)).sum(1) / (result.pred_masks.flatten(1).sum(1) + 1e-6)
+        mask_scores_per_image = (mask_pred.sigmoid().flatten(1) * result.pred_masks.flatten(1)).sum(1) / (result.pred_masks.flatten(1).sum(1) + 1e-6)  # pixel score
         result.scores = scores_per_image * mask_scores_per_image
         result.pred_classes = labels_per_image
         return result
+
+    def semseg_inference_for_insseg_model(self, mask_cls, mask_pred):
+        # mask_cls(Q, C)
+        # mask_pred(Q, H, W) is already processed to have the same shape as original input by func "sem_seg_postprocess"
+
+        # [Q, K]
+        scores = F.softmax(mask_cls, dim=-1)[:, :-1]  # discard non-sense category
+        labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries,
+                                                                                                     1).flatten(0, 1)
+        scores_per_image, topk_indices = scores.flatten(0, 1).topk(self.test_topk_per_image, sorted=False)
+        labels_per_image = labels[topk_indices]  # (topk,), scores_per_image in same shape
+
+        topk_indices = topk_indices // self.sem_seg_head.num_classes
+        mask_pred = mask_pred[topk_indices]  # (topk, H_org, W_org)
+
+        # for rescore by pixel score
+        binary_pred_masks = (mask_pred > 0).float()  # (topk, H_org, W_org), binary(float), before sigmoid
+        mask_scores_per_image = (mask_pred.sigmoid().flatten(1) * binary_pred_masks.flatten(1)).sum(1) / \
+                                (binary_pred_masks.flatten(1).sum(1) + 1e-6)  # pixel score
+
+        pred_scores = scores_per_image * mask_scores_per_image
+        pred_labels = labels_per_image
+        pred_masks = mask_pred
+
+        im_h, im_w = mask_pred.shape[-2:]
+
+        # semseg_im = [torch.zeros((im_h, im_w), dtype=torch.float32)]
+        #
+        # for cls_ind in range(self.sem_seg_head.num_classes):  # 19 for CIHP, without background
+        #     semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32)
+        #     keep_ind = torch.where(pred_labels == cls_ind)
+        #     scores_cate = pred_scores[keep_ind]
+        #     masks_cate = pred_masks[keep_ind]
+        #
+        #     _indx = scores_cate.argsort()
+        #     ins_id = 1
+        #     for k in range(len(_inx)):
+        #         if scores_cate[_inx[k]] < self.ins2sem_score_thresh:
+        #             continue
+        #         _ins_mask = masks_cate[_inx[k]]
+        #         semseg_cate = torch.where(_ins_mask > 0., _ins_mask, semseg_cate)
+        #
+        #     semseg_im.append(semseg_cate)
+        # return torch.stack(semseg_im, dim=0)  # (num_cls_ins, H_org, W_org)
+
+        semseg_im = torch.zeros((im_h, im_w), dtype=torch.uint8, device=pred_masks.device)
+
+        _indx = pred_scores.argsort()
+        for k in range(len(_indx)):
+            if pred_scores[_indx[k]] < self.ins2sem_score_thresh:
+                continue
+            _ins_mask = pred_masks[_indx[k]]
+            _ins_label = pred_labels[_indx[k]]
+            label_mask = torch.ones(_ins_mask.shape, dtype=torch.uint8, device=pred_masks.device) * (_ins_label + 1)
+            semseg_im = torch.where(_ins_mask > 0, label_mask, semseg_im)
+
+        return semseg_im
