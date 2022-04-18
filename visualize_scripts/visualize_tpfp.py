@@ -288,9 +288,9 @@ if __name__ == '__main__':
         dt = [pred[i] for i in inds]
         g = [g['rle_segmentations'] for g in anno]
         gtind = np.argsort([gind['_ignore'] for gind in anno], kind='mergesort')
-        g = [g[i] for i in gtind]
+        g = [g[i] for i in gtind]  # rle gt mask
         gt = [anno[i] for i in gtind]
-        d = [d['segmentations'] for d in dt]
+        d = [d['segmentations'] for d in dt]  # rle dt mask
         iscrowd = [int(o['iscrowd']) for o in gt]
 
         ious = np.zeros([len(pred), len(anno)])
@@ -308,7 +308,12 @@ if __name__ == '__main__':
         path_root = os.path.join(args.output, 'video' + str(vid))
 
         '''draw gt'''
+        '''
+        # todo duplicated categroies makes file_name duplicated
 
+        # print('---num_gt :', len(gt))
+        # print('---categroies :',[YTVIS_CATEGORIES_2021[_a["category_id"]]  for _a in anno])
+        # continue
         print('drawing gt')
         path_gt_root = os.path.join(path_root, 'gt')
         image_size = pred[0]["image_size"]
@@ -335,6 +340,7 @@ if __name__ == '__main__':
                 cv2.imwrite(os.path.join(path_gt_root_i, 'frame' + str(frame_idx) + '.png'),
                             vis_im)
             print('successfully saved gt')
+        '''
 
         # calucate iou
         # iouThrs = np.linspace(.5, 0.95, np.round((0.95 - .5) / .05) + 1, endpoint=True)
@@ -413,30 +419,47 @@ if __name__ == '__main__':
                 #     gtm_015[tind, m015] = d1['instance_id']
 
                 if m == -1:
+                    # fp
                     for gind, g1 in enumerate(gt):
+                        iou = min([t, 1 - 1e-10])
 
-                        if ious[dind, gind] < iou:
-                            if ious[dind, gind] < 0.1:
+                        tmp_gind = 0
+                        tmp_iou = ious[dind, gind]
+                        # pick the hightest iou gt for this dt
+                        if ious[dind, gind] >= tmp_iou:
+                            tmp_iou = ious[dind, gind]
+                            tmp_gind = gind
+                        if gind != len(gt) - 1:
+                            continue
+
+                        # attribute the fp
+                        if tmp_iou < iou:  # <0.5   fp
+
+                            if tmp_iou < 0.1:
                                 if m01 == -1:
-                                    iou01 = ious[dind, gind]
-                                    m01 = gind
-                                if ious[dind, gind] > iou01:
-                                    iou01 = ious[dind, gind]
-                                    m01 = gind
+                                    iou01 = tmp_iou
+                                    m01 = tmp_gind
+
+                                # if ious[dind, gind] > iou01:
+                                #     iou01 = ious[dind, gind]
+                                #     m01 = gind
+
                             else:
                                 if m015 == -1:
-                                    iou015 = ious[dind, gind]
-                                    m015 = gind
-                                if ious[dind, gind] > iou015:
-                                    iou015 = ious[dind, gind]
-                                    m015 = gind
-                        else:
+                                    iou015 = tmp_iou
+                                    m015 = tmp_gind
+
+                                # if ious[dind, gind] > iou015:
+                                #     iou015 = ious[dind, gind]
+                                #     m015 = gind
+
+                        else:  # > 0.5 fp
                             if m05 == -1:
-                                iou05 = ious[dind, gind]
-                                m05 = gind
-                            if ious[dind, gind] > iou05:
-                                iou05 = ious[dind, gind]
-                                m05 = gind
+                                iou05 = tmp_iou
+                                m05 = tmp_gind
+                            # if ious[dind, gind] > iou05:
+                            #     iou05 = ious[dind, gind]
+                            #     m05 = gind
                     if m01 != -1:
                         dtm_01[tind, dind] = gt[m01]['instance_id']
                         gtm_index_01[tind, dind] = m01
@@ -467,7 +490,7 @@ if __name__ == '__main__':
         dtIg = np.logical_or(dtIg, dtm == 0)
 
         '''draw tp'''
-
+        '''
         path_tp_root = os.path.join(path_root, 'tp')
         # tp_match [(dt_index,gt_id)]
         tp_match = [(_i, _dtm) for _i, _dtm in enumerate(dtm[1]) if _dtm != 0]
@@ -520,6 +543,7 @@ if __name__ == '__main__':
                 cv2.imwrite(os.path.join(path_gt_root_i, 'frame' + str(frame_idx) + '.png'),
                             vis_im)
             print('successfully saved tp')
+        '''
 
         '''draw fp  iou<0.1 | 0.1< iou<0.5 | iou>0.5  '''
 
@@ -535,58 +559,106 @@ if __name__ == '__main__':
             tp_dt_index = []
             tp_dt_score = []
 
-            if k == 0:
-                path_tp_root = os.path.join(path_root, 'fp', 'iou<0.1')
-                tp_match = [(_i, _dtm) for _i, _dtm in enumerate(dtm_01[1]) if _dtm != 0]
-            elif k == 1:
-                path_tp_root = os.path.join(path_root, 'fp', '0.1<iou<0.5')
-                tp_match = [(_i, _dtm) for _i, _dtm in enumerate(dtm_015[1]) if _dtm != 0]
+            # draw normal fp
+            # if k == 0:
+            #     path_tp_root = os.path.join(path_root, 'fp', 'iou<0.1')
+            #     tp_match = [(_i, _dtm) for _i, _dtm in enumerate(dtm_01[1]) if _dtm != 0]
+            # elif k == 1:
+            #     path_tp_root = os.path.join(path_root, 'fp', '0.1<iou<0.5')
+            #     tp_match = [(_i, _dtm) for _i, _dtm in enumerate(dtm_015[1]) if _dtm != 0]
+            # else:
+            #     path_tp_root = os.path.join(path_root, 'fp', 'iou>0.5')
+            #     tp_match = [(_i, _dtm) for _i, _dtm in enumerate(dtm_05[1]) if _dtm != 0]
+
+            # draw spatial and temporal error
+            frame_thr = 0.3
+            temporal_thr = 0.7
+            if k == 1:
+                path_tp_root = os.path.join(path_root)
+                tp_match_all = [(_i, _dtm, gtm_index_015[1][_i]) for _i, _dtm in enumerate(dtm_015[1]) if _dtm != 0]
+                tp_match_cat = [[], []] # [[spatial],[temporal]]
+                for _ii, _dtm, _gt_i in tp_match_all:
+                    dt_mask, gt_mask = d[int(_ii)], g[int(_gt_i)]
+
+                    frame_gt_iou = np.zeros(len(dt_mask))  # per frame iou
+                    for _i, (_pr, _prgt) in enumerate(zip(dt_mask, gt_mask)):
+
+                        if not np.any(_prgt) and not np.any(mask_util.decode(_pr)):
+                            # gt and pred both have no mask
+                            tmp_fiou = 1.0
+                        elif not np.any(_prgt) and np.any(mask_util.decode(_pr)):
+                            tmp_fiou = 0.0
+                        else:
+                            tmp_fiou = mask_util.iou([_pr], [_prgt], [False])
+
+                        frame_gt_iou[_i] = tmp_fiou
+                    temporal_good = 0
+                    for _iou in frame_gt_iou:
+                        if _iou > frame_thr:
+                            temporal_good += 1
+
+                    temporal_overlap = temporal_good / len(frame_gt_iou)
+
+                    # Test for SpacialBadError
+                    if temporal_overlap >= temporal_thr:
+                        tp_match_cat[0].append((_ii, _dtm))
+
+                    # Test for TemporalBadError
+                    if temporal_overlap < temporal_thr:
+                        tp_match_cat[1].append((_ii, _dtm))
             else:
-                path_tp_root = os.path.join(path_root, 'fp', 'iou>0.5')
-                tp_match = [(_i, _dtm) for _i, _dtm in enumerate(dtm_05[1]) if _dtm != 0]
-
-            for (tpm_i, tpm_dtm) in tp_match:
-                tp_labels.append(dt[tpm_i]['category_id'] - 1)
-                tp_masks.append(dt[tpm_i]['segmentations'])
-                tp_ins_id.append(dt[tpm_i]['instance_id'])
-                tp_matchgt_insid.append(tpm_dtm)
-                if k == 0:
-                    tp_matchgt_index.append(gtm_index_01[1, tpm_i])
-                elif k == 1:
-                    tp_matchgt_index.append(gtm_index_015[1, tpm_i])
+                continue
+            path_tp_root_s = os.path.join(path_tp_root, 'SpacialBadError')
+            path_tp_root_t = os.path.join(path_tp_root, 'TemporalBadError')
+            for tpc_i, tp_match in enumerate(tp_match_cat):
+                if tpc_i == 0:
+                    path_tp_root = path_tp_root_s
                 else:
-                    tp_matchgt_index.append(gtm_index_05[1, tpm_i])
+                    path_tp_root = path_tp_root_t
 
-                tp_dt_index.append(tpm_i)
-                tp_dt_score.append(dt[tpm_i]['score'])
+                for (tpm_i, tpm_dtm) in tp_match:
+                    tp_labels.append(dt[tpm_i]['category_id'] - 1)
+                    tp_masks.append(dt[tpm_i]['segmentations'])
+                    tp_ins_id.append(dt[tpm_i]['instance_id'])
+                    tp_matchgt_insid.append(tpm_dtm)
+                    if k == 0:
+                        tp_matchgt_index.append(gtm_index_01[1, tpm_i])
+                    elif k == 1:
+                        tp_matchgt_index.append(gtm_index_015[1, tpm_i])
+                    else:
+                        tp_matchgt_index.append(gtm_index_05[1, tpm_i])
 
-            image_size = pred[0]["image_size"]
-            # tp_labels = [_a["category_id"] - 1 for _a in anno]
-            # tp_masks = [_a["segmentations"] for _a in anno]
-            # tp_ins_id = [_a["instance_id"] for _a in anno]
-            print('--num_fp ' + str(k), len(tp_labels))
-            for gl, gm, giid, matchid, tpidx, matchidx, tpscore in zip(tp_labels, tp_masks, tp_ins_id, tp_matchgt_insid,
-                                                                       tp_dt_index, tp_matchgt_index, tp_dt_score):
-                print('drawing fp ' + str(k))
-                gt_frame_masks = [mask_util.decode(_m) for _m in gm]
-                # print(gt_frame_masks)
-                # iou + _ + cat_id + _ + category + score
-                path_gt_root_i = os.path.join(path_tp_root,
-                                              str(ious[tpidx, int(matchidx)]) + '_' + str(gl + 1) + '_' +
-                                              YTVIS_CATEGORIES_2021[
-                                                  gl + 1] + str(tpscore))
-                os.makedirs(path_gt_root_i, exist_ok=True)
-                for frame_idx in range(len(vid_frames)):
-                    frame = vid_frames[frame_idx][:, :, ::-1]
-                    visualizer = TrackVisualizer(frame, metadata, instance_mode=ColorMode.IMAGE)
-                    ins = Instances(image_size)
-                    ins.scores = [tpscore]
-                    ins.pred_classes = [gl]
-                    gt_frame_masks[frame_idx] = [torch.from_numpy(gt_frame_masks[frame_idx])]
-                    ins.pred_masks = torch.stack(gt_frame_masks[frame_idx], dim=0)
+                    tp_dt_index.append(tpm_i)
+                    tp_dt_score.append(dt[tpm_i]['score'])
 
-                    vis_output = visualizer.draw_instance_predictions(predictions=ins)
-                    vis_im = draw_instance_id(vis_output.get_image()[:, :, ::-1], str(giid) + '-' + str(matchid))
-                    cv2.imwrite(os.path.join(path_gt_root_i, 'frame' + str(frame_idx) + '.png'),
-                                vis_im)
-                print('successfully saved fp ' + str(k))
+                image_size = pred[0]["image_size"]
+                # tp_labels = [_a["category_id"] - 1 for _a in anno]
+                # tp_masks = [_a["segmentations"] for _a in anno]
+                # tp_ins_id = [_a["instance_id"] for _a in anno]
+                print('--num_fp ' + str(k), len(tp_labels))
+                for gl, gm, giid, matchid, tpidx, matchidx, tpscore in zip(tp_labels, tp_masks, tp_ins_id,
+                                                                           tp_matchgt_insid,
+                                                                           tp_dt_index, tp_matchgt_index, tp_dt_score):
+                    print('drawing fp ' + str(k))
+                    gt_frame_masks = [mask_util.decode(_m) for _m in gm]
+                    # print(gt_frame_masks)
+                    # iou + _ + cat_id + _ + category + score
+                    path_gt_root_i = os.path.join(path_tp_root,
+                                                  str(ious[tpidx, int(matchidx)]) + '_' + str(gl + 1) + '_' +
+                                                  YTVIS_CATEGORIES_2021[
+                                                      gl + 1] + str(tpscore))
+                    os.makedirs(path_gt_root_i, exist_ok=True)
+                    for frame_idx in range(len(vid_frames)):
+                        frame = vid_frames[frame_idx][:, :, ::-1]
+                        visualizer = TrackVisualizer(frame, metadata, instance_mode=ColorMode.IMAGE)
+                        ins = Instances(image_size)
+                        ins.scores = [tpscore]
+                        ins.pred_classes = [gl]
+                        gt_frame_masks[frame_idx] = [torch.from_numpy(gt_frame_masks[frame_idx])]
+                        ins.pred_masks = torch.stack(gt_frame_masks[frame_idx], dim=0)
+
+                        vis_output = visualizer.draw_instance_predictions(predictions=ins)
+                        vis_im = draw_instance_id(vis_output.get_image()[:, :, ::-1], str(giid) + '-' + str(matchid))
+                        cv2.imwrite(os.path.join(path_gt_root_i, 'frame' + str(frame_idx) + '.jpg'),
+                                    vis_im)
+                    print('successfully saved fp ' + str(k))
