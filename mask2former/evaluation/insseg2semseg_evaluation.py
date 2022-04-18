@@ -101,9 +101,7 @@ class InsSeg2SemSegEvaluator(DatasetEvaluator):
                 segmentation prediction in the same format.
         """
         for input, output in zip(inputs, outputs):
-            # output["sem_seg"]  # (H_org, W_org), each pixel is label with model ouput_label + 1(bg)
-            output = output["sem_seg"].to(self._cpu_device)
-
+            output = output["sem_seg"].argmax(dim=0).to(self._cpu_device)
             pred = np.array(output, dtype=np.int)
             gt_filename = self.input_file_to_gt_file[input["file_name"]]
             gt = self.sem_seg_loading_fn(gt_filename, dtype=np.int)  # (H_org, W_org)
