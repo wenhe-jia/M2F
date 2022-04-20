@@ -75,6 +75,9 @@ class TrackVisualizer(Visualizer):
             )
             alpha = 0.3
 
+        boxes=None
+        labels=None
+
         self.overlay_instances(
             masks=masks,
             boxes=boxes,

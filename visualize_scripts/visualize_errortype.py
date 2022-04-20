@@ -228,11 +228,31 @@ def get_groundtruth_from_json(json_file):
     return pre_list
 
 
-def draw_instance_id(im_in, insid):
-    im_in[:22, :60, :] = 0  # np.zeros((10,10,3))
-    im = cv2.putText(np.ascontiguousarray(im_in), 'id' + str(insid), (2, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                     (255, 255, 255), 1)
-    return im
+def draw_instance_id(im_in, insid, is_gt=False):
+    font = cv2.FONT_HERSHEY_DUPLEX
+    font_scale = 0.7
+    margin = 5
+    thickness = 1
+    if is_gt:
+        color = (255, 105, 65)
+    else:
+        color = (13, 23, 227)
+
+    x = y = 0
+
+    for _nt, text in enumerate(insid):
+        size = cv2.getTextSize(text, font, font_scale, thickness)
+
+        text_width = size[0][0]
+        text_height = size[0][1]
+
+        im_in[y+(margin)*_nt:text_height + margin + y + margin * _nt, :text_width + margin, :] = np.array(
+            [220, 220, 220])  # np.zeros((10,10,3))
+        x = margin
+        y = text_height + y + margin * _nt
+
+        im_in = cv2.putText(np.ascontiguousarray(im_in), text, (x, y), font, font_scale, color, thickness)
+    return im_in
 
 
 if __name__ == '__main__':
@@ -313,42 +333,7 @@ if __name__ == '__main__':
             img = read_image(path, format="BGR")
             vid_frames.append(img)
 
-        path_root = os.path.join(args.output, 'video' + str(vid))
-
-        '''draw gt'''
-
-        # todo duplicated categroies makes file_name duplicated
-
-        # print('---num_gt :', len(gt))
-        # print('---categroies :',[YTVIS_CATEGORIES_2021[_a["category_id"]]  for _a in anno])
-        # continue
-        print('drawing gt')
-        path_gt_root = os.path.join(path_root, 'gt')
-        image_size = pred[0]["image_size"]
-        gt_labels = [_a["category_id"] - 1 for _a in anno]
-        gt_masks = [_a["segmentations"] for _a in anno]
-        gt_ins_id = [_a["instance_id"] for _a in anno]
-        for gl, gm, giid in zip(gt_labels, gt_masks, gt_ins_id):
-            gt_frame_masks = gm
-            # print(gt_frame_masks)
-            # cat_id+_+category
-            path_gt_root_i = os.path.join(path_gt_root,
-                                          str(int(giid)) + '_' + str(gl + 1) + '_' + YTVIS_CATEGORIES_2021[gl + 1])
-            os.makedirs(path_gt_root_i, exist_ok=True)
-            for frame_idx in range(len(vid_frames)):
-                frame = vid_frames[frame_idx][:, :, ::-1]
-                visualizer = TrackVisualizer(frame, metadata, instance_mode=ColorMode.IMAGE)
-                ins = Instances(image_size)
-                ins.scores = [1]
-                ins.pred_classes = [gl]
-                gt_frame_masks[frame_idx] = [torch.from_numpy(gt_frame_masks[frame_idx])]
-                ins.pred_masks = torch.stack(gt_frame_masks[frame_idx], dim=0)
-
-                vis_output = visualizer.draw_instance_predictions(predictions=ins)
-                vis_im = draw_instance_id(vis_output.get_image()[:, :, ::-1], giid)
-                cv2.imwrite(os.path.join(path_gt_root_i, 'frame' + str(frame_idx) + '.jpg'),
-                            vis_im)
-            print('successfully saved gt')
+        path_root = os.path.join(args.output, 'video_' + str(vid))
 
         # calucate iou
         # iouThrs = np.linspace(.5, 0.95, np.round((0.95 - .5) / .05) + 1, endpoint=True)
@@ -469,33 +454,81 @@ if __name__ == '__main__':
                             #     iou05 = ious[dind, gind]
                             #     m05 = gind
                     if m01 != -1:
-                        dtm_01[tind, dind] = gt[m01]['instance_id']
+                        dtm_01[tind, dind] = gt[m01]['id']
                         gtm_index_01[tind, dind] = m01
                         gtm_01[tind, m01] = d1['instance_id']
 
                     if m015 != -1:
-                        dtm_015[tind, dind] = gt[m015]['instance_id']
+                        dtm_015[tind, dind] = gt[m015]['id']
                         gtm_index_015[tind, dind] = m015
                         gtm_015[tind, m015] = d1['instance_id']
 
                     if m05 != -1:
-                        dtm_05[tind, dind] = gt[m05]['instance_id']
+                        dtm_05[tind, dind] = gt[m05]['id']
                         gtm_index_05[tind, dind] = m05
                         gtm_05[tind, m015] = d1['instance_id']
                     continue
 
                 if d1['category_id'] != gt[m]['category_id']:
-                    dtm_05[tind, dind] = gt[m]['instance_id']
+                    dtm_05[tind, dind] = gt[m]['id']
                     gtm_index_05[tind, dind] = m
                     gtm_05[tind, m] = d1['instance_id']
                     continue
 
                 dtIg[tind, dind] = gtIg[m]
-                dtm[tind, dind] = gt[m]['instance_id']
+                dtm[tind, dind] = gt[m]['id']
                 gtm[tind, m] = d1['instance_id']
                 gtm_index[tind, dind] = m
 
         dtIg = np.logical_or(dtIg, dtm == 0)
+
+        '''draw gt'''
+
+        print('drawing gt')
+        path_gt_root = os.path.join(path_root, 'GT')
+        path_gt_root_matched = os.path.join(path_gt_root, 'Matched')
+        path_gt_root_missed = os.path.join(path_gt_root, 'Missed')
+        image_size = pred[0]["image_size"]
+        gt_labels_all = [[], []]  # [[matched],[missed]]
+        gt_masks_all = [[], []]
+        gt_ins_id_all = [[], []]
+        for _a, _gtmind in enumerate(gtm[1]):
+            if _gtmind == 0:
+                gt_labels_all[1].append(gt[_a]["category_id"] - 1)
+                gt_masks_all[1].append(gt[_a]["segmentations"])
+                gt_ins_id_all[1].append(gt[_a]["id"])
+            else:
+                gt_labels_all[0].append(gt[_a]["category_id"] - 1)
+                gt_masks_all[0].append(gt[_a]["segmentations"])
+                gt_ins_id_all[0].append(gt[_a]["id"])
+        for _ri, (gt_labels, gt_masks, gt_ins_id) in enumerate(zip(gt_labels_all, gt_masks_all, gt_ins_id_all)):
+            if _ri == 0:
+                path_gt_root = path_gt_root_matched
+            else:
+                path_gt_root = path_gt_root_missed
+
+            for gl, gm, giid in zip(gt_labels, gt_masks, gt_ins_id):
+                gt_frame_masks = gm
+                # print(gt_frame_masks)
+                # cat_id+_+category
+                path_gt_root_i = os.path.join(path_gt_root,
+                                              'insID-' + str(int(giid)) + '_' + YTVIS_CATEGORIES_2021[gl + 1])
+                os.makedirs(path_gt_root_i, exist_ok=True)
+                for frame_idx in range(len(vid_frames)):
+                    frame = vid_frames[frame_idx][:, :, ::-1]
+                    visualizer = TrackVisualizer(frame, metadata, instance_mode=ColorMode.IMAGE)
+                    ins = Instances(image_size)
+                    ins.scores = [1]
+                    ins.pred_classes = [gl]
+                    gt_frame_masks[frame_idx] = [torch.from_numpy(gt_frame_masks[frame_idx])]
+                    ins.pred_masks = torch.stack(gt_frame_masks[frame_idx], dim=0)
+
+                    vis_output = visualizer.draw_instance_predictions(predictions=ins)
+                    text = ['insID:' + str(int(giid)) + '  ' + YTVIS_CATEGORIES_2021[gl + 1]]
+                    vis_im = draw_instance_id(vis_output.get_image()[:, :, ::-1], text, is_gt=True)
+                    cv2.imwrite(os.path.join(path_gt_root_i, 'frame' + str(frame_idx) + '.jpg'),
+                                vis_im)
+                print('successfully saved gt')
 
         '''draw tp'''
 
@@ -533,9 +566,9 @@ if __name__ == '__main__':
             # print(gt_frame_masks)
             # iou + _ + cat_id + _ + category + score
             path_gt_root_i = os.path.join(path_tp_root,
-                                          str(round(ious[tpidx, int(matchidx)], 2)) + '_' + str(gl + 1) + '_' +
-                                          YTVIS_CATEGORIES_2021[
-                                              gl + 1] + str(round(tpscore, 2)))
+                                          'predIdx-' + str(int(giid)) + '_score-' + str(round(tpscore, 2)) +
+                                          '_iou-' + str(round(ious[tpidx, int(matchidx)], 2)) + '_' +
+                                          YTVIS_CATEGORIES_2021[gl + 1])
             os.makedirs(path_gt_root_i, exist_ok=True)
             for frame_idx in range(len(vid_frames)):
                 frame = vid_frames[frame_idx][:, :, ::-1]
@@ -547,7 +580,11 @@ if __name__ == '__main__':
                 ins.pred_masks = torch.stack(gt_frame_masks[frame_idx], dim=0)
 
                 vis_output = visualizer.draw_instance_predictions(predictions=ins)
-                vis_im = draw_instance_id(vis_output.get_image()[:, :, ::-1], str(giid) + '-' + str(int(matchid)))
+                text = [
+                    'predIdx:' + str(int(giid)) + ' gtID:' + str(int(matchid)) + ' ' + YTVIS_CATEGORIES_2021[gl + 1],
+                    'score:' + str(round(tpscore, 2)) + ' iou:' + str(round(ious[tpidx, int(matchidx)], 2)),
+                ]
+                vis_im = draw_instance_id(vis_output.get_image()[:, :, ::-1], text)
                 cv2.imwrite(os.path.join(path_gt_root_i, 'frame' + str(frame_idx) + '.jpg'),
                             vis_im)
             print('successfully saved tp')
@@ -622,10 +659,9 @@ if __name__ == '__main__':
                     # print(gt_frame_masks)
                     # iou + _ + cat_id + _ + category + score
                     path_gt_root_i = os.path.join(path_tp_root,
-                                                  str(round(ious[tpidx, int(matchidx)], 2)) + '_' + str(
-                                                      gl + 1) + '_' +
-                                                  YTVIS_CATEGORIES_2021[
-                                                      gl + 1] + str(round(tpscore, 2)))
+                                                  'predIdx-' + str(int(giid)) + '_score-' + str(round(tpscore, 2)) +
+                                                  '_iou-' + str(round(ious[tpidx, int(matchidx)], 2)) + '_' +
+                                                  YTVIS_CATEGORIES_2021[gl + 1])
                     os.makedirs(path_gt_root_i, exist_ok=True)
                     for frame_idx in range(len(vid_frames)):
                         frame = vid_frames[frame_idx][:, :, ::-1]
@@ -637,8 +673,13 @@ if __name__ == '__main__':
                         ins.pred_masks = torch.stack(gt_frame_masks[frame_idx], dim=0)
 
                         vis_output = visualizer.draw_instance_predictions(predictions=ins)
+                        text = [
+                            'predIdx:' + str(int(giid)) + ' gtID:' + str(int(matchid)) + ' ' + YTVIS_CATEGORIES_2021[
+                                gl + 1],
+                            'score:' + str(round(tpscore, 2)) + ' iou:' + str(round(ious[tpidx, int(matchidx)], 2)),
+                        ]
                         vis_im = draw_instance_id(vis_output.get_image()[:, :, ::-1],
-                                                  str(giid) + '-' + str(int(matchid)))
+                                                  text)
                         cv2.imwrite(os.path.join(path_gt_root_i, 'frame' + str(frame_idx) + '.jpg'),
                                     vis_im)
                     print('successfully saved fp ' + str(k))
@@ -731,10 +772,9 @@ if __name__ == '__main__':
                         # print(gt_frame_masks)
                         # iou + _ + cat_id + _ + category + score
                         path_gt_root_i = os.path.join(path_tp_root,
-                                                      str(round(ious[tpidx, int(matchidx)], 2)) + '_' + str(
-                                                          gl + 1) + '_' +
-                                                      YTVIS_CATEGORIES_2021[
-                                                          gl + 1] + str(round(tpscore, 2)))
+                                                      'predIdx-' + str(int(giid)) + '_score-' + str(round(tpscore, 2)) +
+                                                      '_iou-' + str(round(ious[tpidx, int(matchidx)], 2)) + '_' +
+                                                      YTVIS_CATEGORIES_2021[gl + 1])
                         os.makedirs(path_gt_root_i, exist_ok=True)
                         for frame_idx in range(len(vid_frames)):
                             frame = vid_frames[frame_idx][:, :, ::-1]
@@ -746,8 +786,13 @@ if __name__ == '__main__':
                             ins.pred_masks = torch.stack(gt_frame_masks[frame_idx], dim=0)
 
                             vis_output = visualizer.draw_instance_predictions(predictions=ins)
+                            text = [
+                                'predIdx:' + str(int(giid)) + ' gtID:' + str(int(matchid)) + ' ' +
+                                YTVIS_CATEGORIES_2021[gl + 1],
+                                'score:' + str(round(tpscore, 2)) + ' iou:' + str(round(ious[tpidx, int(matchidx)], 2)),
+                            ]
                             vis_im = draw_instance_id(vis_output.get_image()[:, :, ::-1],
-                                                      str(giid) + '-' + str(matchid))
+                                                      text)
                             cv2.imwrite(os.path.join(path_gt_root_i, 'frame' + str(frame_idx) + '.jpg'),
                                         vis_im)
                         print('successfully saved fp ' + str(k))
@@ -758,7 +803,7 @@ if __name__ == '__main__':
                 tp_match_all = [(_i, _dtm) for _i, _dtm in enumerate(dtm_05[1]) if _dtm != 0]
                 tp_match_cat = [[], []]  # [[cls],[dup]]
                 for (_i, _dtm) in tp_match_all:
-                    if dt[_i]['category_id'] == gt[int(gtm_index_05[1, _i])]['category_id']:
+                    if dt[_i]['category_id'] != gt[int(gtm_index_05[1, _i])]['category_id']:
                         tp_match_cat[0].append((_i, _dtm))
                     else:
                         tp_match_cat[1].append((_i, _dtm))
@@ -811,10 +856,9 @@ if __name__ == '__main__':
                         # print(gt_frame_masks)
                         # iou + _ + cat_id + _ + category + score
                         path_gt_root_i = os.path.join(path_tp_root,
-                                                      str(round(ious[tpidx, int(matchidx)], 2)) + '_' + str(
-                                                          gl + 1) + '_' +
-                                                      YTVIS_CATEGORIES_2021[
-                                                          gl + 1] + str(round(tpscore, 2)))
+                                                      'predIdx-' + str(int(giid)) + '_score-' + str(round(tpscore, 2)) +
+                                                      '_iou-' + str(round(ious[tpidx, int(matchidx)], 2)) + '_' +
+                                                      YTVIS_CATEGORIES_2021[gl + 1])
                         os.makedirs(path_gt_root_i, exist_ok=True)
                         for frame_idx in range(len(vid_frames)):
                             frame = vid_frames[frame_idx][:, :, ::-1]
@@ -826,12 +870,19 @@ if __name__ == '__main__':
                             ins.pred_masks = torch.stack(gt_frame_masks[frame_idx], dim=0)
 
                             vis_output = visualizer.draw_instance_predictions(predictions=ins)
+                            text = [
+                                'predIdx:' + str(int(giid)) + ' gtID:' + str(int(matchid)) + ' ' +
+                                YTVIS_CATEGORIES_2021[gl + 1],
+                                'score:' + str(round(tpscore, 2)) + ' iou:' + str(round(ious[tpidx, int(matchidx)], 2)),
+                            ]
                             vis_im = draw_instance_id(vis_output.get_image()[:, :, ::-1],
-                                                      str(giid) + '-' + str(int(matchid)))
+                                                      text)
                             cv2.imwrite(os.path.join(path_gt_root_i, 'frame' + str(frame_idx) + '.jpg'),
                                         vis_im)
                         print('successfully saved fp ' + str(k))
 
-        error_look_up_dict['video' + str(vid)]['FP'] = list(error_look_up_dict['video' + str(vid)]['FP'])
+
+    for ks in error_look_up_dict.keys():
+        error_look_up_dict[ks]['FP'] = list(error_look_up_dict[ks]['FP'])
     js_save_path = args.output
     json.dump(error_look_up_dict, open(os.path.join(js_save_path, 'error_look_up_dict.json'), 'w'))
