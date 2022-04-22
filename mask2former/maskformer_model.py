@@ -423,36 +423,46 @@ class MaskFormer(nn.Module):
         pred_labels = labels_per_image
         pred_masks = mask_pred
 
+
+        '''
+        Paste sigmoid results for each category
+        '''
         im_h, im_w = mask_pred.shape[-2:]
+        semseg_im = [torch.zeros((im_h, im_w), dtype=torch.float32, device=pred_masks.device) + 1e-6]
+        for cls_ind in range(self.sem_seg_head.num_classes):  # 19 for CIHP, without background
+            keep_ind = torch.where(pred_labels == cls_ind)
+            scores_cate = pred_scores[keep_ind]
+            masks_cate = pred_masks[keep_ind].sigmoid()
 
-        # semseg_im = [torch.zeros((im_h, im_w), dtype=torch.float32)]
+            # paste_time = 0
+            semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=pred_masks.device)
+            _indx = scores_cate.argsort()
+            for k in range(len(_indx)):
+                if scores_cate[_indx[k]] < self.ins2sem_score_thresh:
+                    continue
+                _ins_mask = masks_cate[_indx[k]] * scores_cate[_indx[k]]
+                semseg_cate = torch.where(_ins_mask > 0.5, _ins_mask + semseg_cate, semseg_cate)
+                # paste_time += 1
+
+            # if paste_time > 0:
+            #     semseg_im.append(semseg_cate / paste_time)
+            # else:
+            #     semseg_im.append(semseg_cate)
+
+            semseg_im.append(semseg_cate)
+
+        return torch.stack(semseg_im, dim=0)  # (num_cls_ins, H_org, W_org)
+
+
+        # semseg_im = torch.zeros((im_h, im_w), dtype=torch.uint8, device=pred_masks.device)
         #
-        # for cls_ind in range(self.sem_seg_head.num_classes):  # 19 for CIHP, without background
-        #     semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32)
-        #     keep_ind = torch.where(pred_labels == cls_ind)
-        #     scores_cate = pred_scores[keep_ind]
-        #     masks_cate = pred_masks[keep_ind]
+        # _indx = pred_scores.argsort()
+        # for k in range(len(_indx)):
+        #     if pred_scores[_indx[k]] < self.ins2sem_score_thresh:
+        #         continue
+        #     _ins_mask = pred_masks[_indx[k]]
+        #     _ins_label = pred_labels[_indx[k]]
+        #     label_mask = torch.ones(_ins_mask.shape, dtype=torch.uint8, device=pred_masks.device) * (_ins_label + 1)
+        #     semseg_im = torch.where(_ins_mask > 0, label_mask, semseg_im)
         #
-        #     _indx = scores_cate.argsort()
-        #     ins_id = 1
-        #     for k in range(len(_inx)):
-        #         if scores_cate[_inx[k]] < self.ins2sem_score_thresh:
-        #             continue
-        #         _ins_mask = masks_cate[_inx[k]]
-        #         semseg_cate = torch.where(_ins_mask > 0., _ins_mask, semseg_cate)
-        #
-        #     semseg_im.append(semseg_cate)
-        # return torch.stack(semseg_im, dim=0)  # (num_cls_ins, H_org, W_org)
-
-        semseg_im = torch.zeros((im_h, im_w), dtype=torch.uint8, device=pred_masks.device)
-
-        _indx = pred_scores.argsort()
-        for k in range(len(_indx)):
-            if pred_scores[_indx[k]] < self.ins2sem_score_thresh:
-                continue
-            _ins_mask = pred_masks[_indx[k]]
-            _ins_label = pred_labels[_indx[k]]
-            label_mask = torch.ones(_ins_mask.shape, dtype=torch.uint8, device=pred_masks.device) * (_ins_label + 1)
-            semseg_im = torch.where(_ins_mask > 0, label_mask, semseg_im)
-
-        return semseg_im
+        # return semseg_im

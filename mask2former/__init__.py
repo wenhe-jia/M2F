@@ -25,7 +25,7 @@ from .data.dataset_mappers.mask_former_parsing_instance_dataset_mapper import (
 
 # models
 from .maskformer_model import MaskFormer
-from .test_time_augmentation import SemanticSegmentorWithTTA
+from .test_time_augmentation import SemanticSegmentorWithTTA, ParsingSemanticSegmentorWithTTA
 
 # evaluation
 from .evaluation.instance_evaluation import InstanceSegEvaluator

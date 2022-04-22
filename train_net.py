@@ -58,6 +58,7 @@ from mask2former import (
     add_maskformer2_config,
     MaskFormerParsingInstanceDatasetMapper,
     InsSeg2SemSegEvaluator,
+    ParsingSemanticSegmentorWithTTA,
 )
 
 
@@ -280,7 +281,11 @@ class Trainer(DefaultTrainer):
         logger = logging.getLogger("detectron2.trainer")
         # In the end of training, run an evaluation with TTA.
         logger.info("Running inference with test-time augmentation ...")
-        model = SemanticSegmentorWithTTA(cfg, model)
+        if 'cihp' in cfg.DATASETS.TEST[0]:
+            logger.info("\n\n===========\nUsing ParsingSemanticSegmentorWithTTA\n==========\n\n")
+            model = ParsingSemanticSegmentorWithTTA(cfg, model)
+        else:
+            model = SemanticSegmentorWithTTA(cfg, model)
         evaluators = [
             cls.build_evaluator(
                 cfg, name, output_folder=os.path.join(cfg.OUTPUT_DIR, "inference_TTA")
@@ -317,7 +322,8 @@ def main(args):
         DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
             cfg.MODEL.WEIGHTS, resume=args.resume
         )
-        res = Trainer.test(cfg, model)
+        # res = Trainer.test(cfg, model)
+        res = {}
         if cfg.TEST.AUG.ENABLED:
             res.update(Trainer.test_with_TTA(cfg, model))
         if comm.is_main_process():
