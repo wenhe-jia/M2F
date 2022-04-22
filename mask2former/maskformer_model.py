@@ -406,13 +406,12 @@ class MaskFormer(nn.Module):
 
         # [Q, K]
         scores = F.softmax(mask_cls, dim=-1)[:, :-1]  # discard non-sense category
-        labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries,
-                                                                                                     1).flatten(0, 1)
+        labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)
         scores_per_image, topk_indices = scores.flatten(0, 1).topk(self.test_topk_per_image, sorted=False)
         labels_per_image = labels[topk_indices]  # (topk,), scores_per_image in same shape
 
         topk_indices = topk_indices // self.sem_seg_head.num_classes
-        mask_pred = mask_pred[topk_indices]  # (topk, H_org, W_org)
+        mask_pred = mask_pred[topk_indices]  # (topk, H_org, W_org), mask of a query could be selected more than one time
 
         # for rescore by pixel score
         binary_pred_masks = (mask_pred > 0).float()  # (topk, H_org, W_org), binary(float), before sigmoid
@@ -454,6 +453,9 @@ class MaskFormer(nn.Module):
         return torch.stack(semseg_im, dim=0)  # (num_cls_ins, H_org, W_org)
 
 
+        # '''
+        # paste label
+        # '''
         # semseg_im = torch.zeros((im_h, im_w), dtype=torch.uint8, device=pred_masks.device)
         #
         # _indx = pred_scores.argsort()
