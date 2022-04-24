@@ -18,10 +18,13 @@ from detectron2.structures import (
 from detectron2.data import transforms as T
 from detectron2.data import MetadataCatalog
 
+from pycocotools import mask as maskUtils
+
 
 __all__ = [
     "get_parsing_flip_map",
     "transform_parsing_insseg_instance_annotations",
+    "compute_parsing_IoP",
 ]
 
 
@@ -110,3 +113,10 @@ def flip_cihp_parsing_category(category, transforms, flip_map):
             elif category == new_label:
                 category = ori_label
     return category
+
+
+def compute_parsing_IoP(person_binary_mask, part_binary_mask):
+    # both person_binary_mask and part_binary_mask are binary mask in shape (H, W)
+    area_part = maskUtils.area(part_binary_mask)
+    i = maskUtils.area(maskUtils,merge(person_binary_mask, part_binary_mask), True)
+    return i / area_part

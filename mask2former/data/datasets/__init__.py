@@ -9,4 +9,5 @@ from . import (
     register_mapillary_vistas_panoptic,
     register_cihp_semseg,
     register_cihp_instance,
+    register_cihp_instance_united,
 )

@@ -17,6 +17,8 @@ from .modeling.criterion import SetCriterion
 from .modeling.matcher import HungarianMatcher
 
 
+from .data.parsing_insseg_utils import compute_parsing_IoP
+
 @META_ARCH_REGISTRY.register()
 class MaskFormer(nn.Module):
     """
@@ -44,8 +46,8 @@ class MaskFormer(nn.Module):
         instance_on: bool,
         test_topk_per_image: int,
         # evaluate parsing semseg metrics(mIoU) with insseg model
-        instance_to_semantic: bool,
-        ins2sem_score_thresh: float,
+        parsing_on: bool,
+        parsing_ins_score_thr: float,
     ):
         """
         Args:
@@ -92,9 +94,9 @@ class MaskFormer(nn.Module):
         self.instance_on = instance_on
         self.panoptic_on = panoptic_on
         self.test_topk_per_image = test_topk_per_image
-        # evaluate parsing semseg metrics(mIoU) with insseg model
-        self.instance_to_semantic = instance_to_semantic
-        self.ins2sem_score_thresh = ins2sem_score_thresh
+        # evaluate parsing
+        self.parsing_on = parsing_on
+        self.parsing_ins_score_thr = parsing_ins_score_thr
 
         if not self.semantic_on:
             assert self.sem_seg_postprocess_before_inference
@@ -165,8 +167,8 @@ class MaskFormer(nn.Module):
             "panoptic_on": cfg.MODEL.MASK_FORMER.TEST.PANOPTIC_ON,
             "test_topk_per_image": cfg.TEST.DETECTIONS_PER_IMAGE,
             # evaluate parsing semseg metrics(mIoU) with insseg model
-            "instance_to_semantic": cfg.MODEL.MASK_FORMER.TEST.INSTANCE_TO_SEMANTIC,
-            "ins2sem_score_thresh": cfg.MODEL.MASK_FORMER.TEST.INS2SEM_SCORE_THR
+            "parsing_on": cfg.MODEL.MASK_FORMER.TEST.PARSING_ON,
+            "parsing_ins_score_thr": cfg.MODEL.MASK_FORMER.TEST.PARSING_INS_SCORE_THR
         }
 
     @property
@@ -245,15 +247,16 @@ class MaskFormer(nn.Module):
                 width = input_per_image.get("width", image_size[1])
                 processed_results.append({}) # for each image
 
-                if self.instance_to_semantic:
+                if self.parsing_on:
                     # evaluate parsing semseg metrics(mIoU) with insseg model
                     mask_pred_result = retry_if_cuda_oom(sem_seg_postprocess)(
                         mask_pred_result, image_size, height, width
                     )
                     mask_cls_result = mask_cls_result.to(mask_pred_result)  # change device as mask_pred_result
 
-                    r = retry_if_cuda_oom(self.semseg_inference_for_insseg_model)(mask_cls_result, mask_pred_result)  # (C, H, W)
-                    processed_results[-1]["sem_seg"] = r
+                    # r = retry_if_cuda_oom(self.parsing_inference(mask_cls_result, mask_pred_result))
+                    r = retry_if_cuda_oom(self.semseg_inference_for_insseg_model(mask_cls_result, mask_pred_result))
+                    processed_results[-1]["parsing"] = r
 
                 else:
                     if self.sem_seg_postprocess_before_inference:
@@ -437,7 +440,7 @@ class MaskFormer(nn.Module):
             semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=pred_masks.device)
             _indx = scores_cate.argsort()
             for k in range(len(_indx)):
-                if scores_cate[_indx[k]] < self.ins2sem_score_thresh:
+                if scores_cate[_indx[k]] < self.parsing_ins_score_thr:
                     continue
                 _ins_mask = masks_cate[_indx[k]] * scores_cate[_indx[k]]
                 semseg_cate = torch.where(_ins_mask > 0.5, _ins_mask + semseg_cate, semseg_cate)
@@ -451,7 +454,6 @@ class MaskFormer(nn.Module):
             semseg_im.append(semseg_cate)
 
         return torch.stack(semseg_im, dim=0)  # (num_cls_ins, H_org, W_org)
-
 
         # '''
         # paste label
@@ -468,3 +470,110 @@ class MaskFormer(nn.Module):
         #     semseg_im = torch.where(_ins_mask > 0, label_mask, semseg_im)
         #
         # return semseg_im
+
+    def parsing_inference(self, mask_cls, mask_pred):
+        # mask_cls(Q, C)
+        # mask_pred(Q, H, W) is already processed to have the same shape as original input by func "sem_seg_postprocess"
+
+        # [Q, K]
+        scores = F.softmax(mask_cls, dim=-1)[:, :-1]  # discard non-sense category
+        labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)
+        scores_per_image, topk_indices = scores.flatten(0, 1).topk(self.test_topk_per_image, sorted=False)
+        labels_per_image = labels[topk_indices]  # (topk,), scores_per_image in same shape
+
+        topk_indices = topk_indices // self.sem_seg_head.num_classes
+        mask_pred = mask_pred[topk_indices]  # (topk, H_org, W_org), mask of a query could be selected more than one time
+
+        # for rescore by pixel score
+        binary_pred_masks = (mask_pred > 0).float()  # (topk, H_org, W_org), binary(float), before sigmoid
+        mask_scores_per_image = (mask_pred.sigmoid().flatten(1) * binary_pred_masks.flatten(1)).sum(1) / \
+                                (binary_pred_masks.flatten(1).sum(1) + 1e-6)  # pixel score
+
+        pred_scores = scores_per_image * mask_scores_per_image
+        pred_labels = labels_per_image
+        pred_masks = mask_pred
+
+        # get person instances and part instances
+        part_labels = pred_labels[torch.where(pred_labels != 0)]
+        part_scores = pred_scores[torch.where(pred_labels != 0)]
+        part_masks  = pred_masks[torch.where(pred_labels != 0), :, :]
+
+        person_scores = pred_scores[torch.where(pred_labels == 0)]
+        person_masks = pred_masks[torch.where(pred_masks == 0), :, :]
+
+        person_keep_ind = torch.where(person_scores > self.parsing_ins_score_thr)
+        person_scores = person_scores[person_keep_ind]
+        person_masks = person_masks[person_keep_ind, :, :]
+
+        res = []
+        # prepare matching infos, matching is based on
+        matching_mtx = torch.zeros((person_scores.shape[0], part_scores.shape[0]), dtype=torch.unit8)
+        person_ids = torch.arange(person_masks.shape[0])
+        part_ids = torch.arange(part_masks.shape[0])
+        for person_id, person_score, person_mask in zip(person_ids, person_scores, person_masks):
+            for part_id, part_label, part_score, part_mask in zip(part_ids, part_labels, part_scores, part_masks):
+                if part_score > self.parsing_ins_score_thr:
+                    iop = compute_parsing_IoP(person_mask > 0, part_mask > 0)
+
+                    if iop > self.iop_thr:
+                        matching_mtx[person_id, part_id] = 1
+
+            matched_part_ids = matching_mtx[person_id]
+
+            parsing_person, person_pix_score, parts_pix_score = self.get_person_parsing(
+                part_scores[matched_part_ids],
+                part_labels[matched_part_ids],
+                part_masks[matched_part_ids]
+            )
+
+            res.append(
+                {
+                    "category_id": 1,
+                    "parsing": parsing_person,  # (H, W)
+                    "score": person_score,
+                    "person_instance_score": person_pix_score,
+                    "part_score": parts_pix_score
+                }
+            )
+        return res
+
+    def get_person_parsing(self, part_scores, part_labels, part_masks):
+        im_h, im_w = part_masks.shape[-2:]
+        person_parsing = [torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device) + 1e-6]
+        part_pix_scores = []
+        for cls_ind in range(1, self.sem_seg_head.num_classes):  # skip class 'person'
+            keep_ind = torch.where(part_labels == cls_ind)
+            if len(keep_ind) == 0:
+                semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
+            elif len(keep_ind) == 1:
+                semseg_cate = part_masks[keep_ind].sigmoid()
+            else:
+                scores_cate = part_scores[keep_ind]
+                masks_cate = part_masks[keep_ind].sigmoid()
+
+                # keep only one part instance for one person
+                max_idx = scores_cate.argmax()
+                semseg_cate = masks_cate[max_idx, :, :]
+
+            person_parsing.append(semseg_cate)
+            # part pixel score
+            part_pix_scores.append(self.pixel_score(semseg_cate))
+
+        parsing_probs = torch.stack(person_parsing, dim=0)  # (C, H, W)
+        inst_max, inst_idx = torch.max(parsing_probs, dim=0)  # (H, W)
+        parsings = inst_idx.to(dtype=torch.uint8) * (inst_max >= 1 / self.sem_seg_head.num_classes).to(dtype=torch.bool)
+        person_pixel_scores = self.pixel_score(inst_max)
+
+        return parsings, person_pixel_scores, torch.tensor(part_pix_scores, device=part_masks.device)
+
+    def pixel_score(self, pred, thr=0.5):
+        # pred: (H, W)
+        # high confidence mask (hcm)
+        inst_hcm = (pred >= thr).to(dtype=torch.bool)
+        # high confidence value (hcv)
+        inst_hcv = torch.sum(pred * inst_hcm, dim=[0, 1]).to(dtype=torch.float32)
+        inst_hcm_num = torch.clamp(torch.sum(inst_hcm, dim=[0, 1]).to(dtype=torch.float32), min=1e-6)
+
+        pix_score = inst_hcv / inst_hcm_num
+
+        return pix_score
