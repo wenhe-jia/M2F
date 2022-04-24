@@ -15,17 +15,19 @@ CIHP_SEMSEG_CATEGORIES = [
 
 # ==== Predefined splits for raw CIHP images ===========
 _PREDEFINED_SPLITS = {
-    "cihp_semseg_train":("Training/Images/", "Training/Category_ids/"),
-    "cihp_semseg_val":("Validation/Images/", "Validation/Category_ids/"),
+    "cihp_semseg_train": ("Training/Images/", "Training/Category_ids/", "annotations/CIHP_train.json"),
+    "cihp_semseg_val": ("Validation/Images/", "Validation/Category_ids/", "annotations/CIHP_val.json"),
 }
+
 
 def register_cihp_semseg(root):
     root = os.path.join(root, "cihp")
     # print(root)
     # print('\n\n\n\n\n\n cihp registered in d2')
-    for name, (image_dir, gt_dir) in _PREDEFINED_SPLITS.items():
+    for name, (image_dir, gt_dir, json_dir) in _PREDEFINED_SPLITS.items():
         image_dir = os.path.join(root, image_dir)
         gt_dir = os.path.join(root, gt_dir)
+        json_dir = os.path.join(root, json_dir)
         # print(image_dir, gt_dir)
         DatasetCatalog.register(
             name, lambda x=image_dir, y=gt_dir: load_sem_seg(y, x, gt_ext="png", image_ext="jpg")
@@ -36,7 +38,9 @@ def register_cihp_semseg(root):
             sem_seg_root=gt_dir,
             evaluator_type="sem_seg",
             ignore_label=255,
+            json_file=json_dir
         )
+
 
 _root = os.getenv("DETECTRON2_DATASETS", "datasets")
 register_cihp_semseg(_root)
