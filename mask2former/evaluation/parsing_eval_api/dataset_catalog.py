@@ -513,7 +513,7 @@ COMMON_DATASETS = {
             },
         },
     },
-    'cihp_semseg_val': {
+    'cihp_united_instance_val': {
         _IM_DIR: _DATA_DIR + '/CIHP/Validation/Images',
         _ANN_FN: _DATA_DIR + '/CIHP/annotations/CIHP_val.json',
         _ANN_TYPES: ('bbox', 'mask', 'parsing', 'semseg'),

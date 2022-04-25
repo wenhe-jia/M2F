@@ -16,7 +16,7 @@ from detectron2.utils.memory import retry_if_cuda_oom
 from .modeling.criterion import SetCriterion
 from .modeling.matcher import HungarianMatcher
 
-
+import copy
 from .data.parsing_insseg_utils import compute_parsing_IoP
 
 @META_ARCH_REGISTRY.register()
@@ -48,6 +48,7 @@ class MaskFormer(nn.Module):
         # evaluate parsing semseg metrics(mIoU) with insseg model
         parsing_on: bool,
         parsing_ins_score_thr: float,
+        iop_thresh: float
     ):
         """
         Args:
@@ -97,6 +98,7 @@ class MaskFormer(nn.Module):
         # evaluate parsing
         self.parsing_on = parsing_on
         self.parsing_ins_score_thr = parsing_ins_score_thr
+        self.iop_thresh = iop_thresh
 
         if not self.semantic_on:
             assert self.sem_seg_postprocess_before_inference
@@ -168,7 +170,8 @@ class MaskFormer(nn.Module):
             "test_topk_per_image": cfg.TEST.DETECTIONS_PER_IMAGE,
             # evaluate parsing semseg metrics(mIoU) with insseg model
             "parsing_on": cfg.MODEL.MASK_FORMER.TEST.PARSING_ON,
-            "parsing_ins_score_thr": cfg.MODEL.MASK_FORMER.TEST.PARSING_INS_SCORE_THR
+            "parsing_ins_score_thr": cfg.MODEL.MASK_FORMER.TEST.PARSING_INS_SCORE_THR,
+            "iop_thresh": cfg.MODEL.MASK_FORMER.TEST.IOP_THR,
         }
 
     @property
@@ -254,9 +257,8 @@ class MaskFormer(nn.Module):
                     )
                     mask_cls_result = mask_cls_result.to(mask_pred_result)  # change device as mask_pred_result
 
-                    # r = retry_if_cuda_oom(self.parsing_inference(mask_cls_result, mask_pred_result))
-                    r = retry_if_cuda_oom(self.semseg_inference_for_insseg_model(mask_cls_result, mask_pred_result))
-                    processed_results[-1]["parsing"] = r
+                    r = retry_if_cuda_oom(self.parsing_inference)(mask_cls_result, mask_pred_result)
+                    processed_results[-1]["parsing"] = list(r)
 
                 else:
                     if self.sem_seg_postprocess_before_inference:
@@ -425,7 +427,6 @@ class MaskFormer(nn.Module):
         pred_labels = labels_per_image
         pred_masks = mask_pred
 
-
         '''
         Paste sigmoid results for each category
         '''
@@ -494,33 +495,34 @@ class MaskFormer(nn.Module):
         pred_masks = mask_pred
 
         # get person instances and part instances
-        part_labels = pred_labels[torch.where(pred_labels != 0)]
-        part_scores = pred_scores[torch.where(pred_labels != 0)]
-        part_masks  = pred_masks[torch.where(pred_labels != 0), :, :]
+        part_labels = pred_labels[torch.where(pred_labels != 0)[0]]
+        part_scores = pred_scores[torch.where(pred_labels != 0)[0]]
+        part_masks  = pred_masks[torch.where(pred_labels != 0)[0], :, :]
 
-        person_scores = pred_scores[torch.where(pred_labels == 0)]
-        person_masks = pred_masks[torch.where(pred_masks == 0), :, :]
+        person_scores = pred_scores[torch.where(pred_labels == 0)[0]]
+        person_masks = pred_masks[torch.where(pred_labels == 0)[0], :, :]
 
-        person_keep_ind = torch.where(person_scores > self.parsing_ins_score_thr)
+        person_keep_ind = torch.where(person_scores > 0.)[0]  # self.parsing_ins_score_thr
         person_scores = person_scores[person_keep_ind]
         person_masks = person_masks[person_keep_ind, :, :]
 
+
         res = []
         # prepare matching infos, matching is based on
-        matching_mtx = torch.zeros((person_scores.shape[0], part_scores.shape[0]), dtype=torch.unit8)
+        matching_mtx = torch.zeros((person_scores.shape[0], part_scores.shape[0]), dtype=torch.uint8)
         person_ids = torch.arange(person_masks.shape[0])
         part_ids = torch.arange(part_masks.shape[0])
         for person_id, person_score, person_mask in zip(person_ids, person_scores, person_masks):
             for part_id, part_label, part_score, part_mask in zip(part_ids, part_labels, part_scores, part_masks):
                 if part_score > self.parsing_ins_score_thr:
-                    iop = compute_parsing_IoP(person_mask > 0, part_mask > 0)
+                    iop = compute_parsing_IoP(copy.deepcopy(person_mask > 0), copy.deepcopy(part_mask > 0))
 
-                    if iop > self.iop_thr:
+                    if iop > self.iop_thresh:
                         matching_mtx[person_id, part_id] = 1
 
             matched_part_ids = matching_mtx[person_id]
 
-            parsing_person, person_pix_score, parts_pix_score = self.get_person_parsing(
+            parsing_person, parts_pix_score = self.get_person_parsing(
                 part_scores[matched_part_ids],
                 part_labels[matched_part_ids],
                 part_masks[matched_part_ids]
@@ -529,10 +531,10 @@ class MaskFormer(nn.Module):
             res.append(
                 {
                     "category_id": 1,
-                    "parsing": parsing_person,  # (H, W)
-                    "score": person_score,
-                    "person_instance_score": person_pix_score,
-                    "part_score": parts_pix_score
+                    "parsing": parsing_person.cpu().numpy(),  # (H, W)
+                    "instance_score": person_score.cpu(),
+                    "parsing_bbox_score": person_score.cpu(),
+                    "part_pixel_scores": parts_pix_score
                 }
             )
         return res
@@ -542,11 +544,11 @@ class MaskFormer(nn.Module):
         person_parsing = [torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device) + 1e-6]
         part_pix_scores = []
         for cls_ind in range(1, self.sem_seg_head.num_classes):  # skip class 'person'
-            keep_ind = torch.where(part_labels == cls_ind)
+            keep_ind = torch.where(part_labels == cls_ind)[0]
             if len(keep_ind) == 0:
                 semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
             elif len(keep_ind) == 1:
-                semseg_cate = part_masks[keep_ind].sigmoid()
+                semseg_cate = part_masks[keep_ind[0]].sigmoid()
             else:
                 scores_cate = part_scores[keep_ind]
                 masks_cate = part_masks[keep_ind].sigmoid()
@@ -557,14 +559,13 @@ class MaskFormer(nn.Module):
 
             person_parsing.append(semseg_cate)
             # part pixel score
-            part_pix_scores.append(self.pixel_score(semseg_cate))
+            part_pix_scores.append(self.pixel_score(semseg_cate).cpu())
 
         parsing_probs = torch.stack(person_parsing, dim=0)  # (C, H, W)
         inst_max, inst_idx = torch.max(parsing_probs, dim=0)  # (H, W)
         parsings = inst_idx.to(dtype=torch.uint8) * (inst_max >= 1 / self.sem_seg_head.num_classes).to(dtype=torch.bool)
-        person_pixel_scores = self.pixel_score(inst_max)
 
-        return parsings, person_pixel_scores, torch.tensor(part_pix_scores, device=part_masks.device)
+        return parsings, part_pix_scores
 
     def pixel_score(self, pred, thr=0.5):
         # pred: (H, W)

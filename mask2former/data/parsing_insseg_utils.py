@@ -117,6 +117,14 @@ def flip_cihp_parsing_category(category, transforms, flip_map):
 
 def compute_parsing_IoP(person_binary_mask, part_binary_mask):
     # both person_binary_mask and part_binary_mask are binary mask in shape (H, W)
-    area_part = maskUtils.area(part_binary_mask)
-    i = maskUtils.area(maskUtils,merge(person_binary_mask, part_binary_mask), True)
+    person = person_binary_mask.cpu()[:, :, None]
+    person = mask_util.encode(np.array(person, order="F", dtype="uint8"))[0]
+    person["counts"] = person["counts"].decode("utf-8")
+
+    part = part_binary_mask.cpu()[:, :, None]
+    part = mask_util.encode(np.array(part, order="F", dtype="uint8"))[0]
+    part["counts"] = part["counts"].decode("utf-8")
+
+    area_part = maskUtils.area(part)
+    i = maskUtils.area(maskUtils.merge([person, part], True))
     return i / area_part

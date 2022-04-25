@@ -62,6 +62,7 @@ def add_maskformer2_config(cfg):
     cfg.MODEL.MASK_FORMER.TEST.PARSING_ON = False
     cfg.MODEL.MASK_FORMER.TEST.PARSING_INS_SCORE_THR = 0.5
     cfg.MODEL.MASK_FORMER.TEST.PIXEL_SCORE_TH = 0.25
+    cfg.MODEL.MASK_FORMER.TEST.IOP_THR = 0.5
 
     # Sometimes `backbone.size_divisibility` is set to 0 for some backbone (e.g. ResNet)
     # you can use this config to override

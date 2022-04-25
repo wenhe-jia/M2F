@@ -30,3 +30,4 @@ from .test_time_augmentation import SemanticSegmentorWithTTA, ParsingSemanticSeg
 # evaluation
 from .evaluation.instance_evaluation import InstanceSegEvaluator
 from .evaluation.insseg2semseg_evaluation import InsSeg2SemSegEvaluator
+from .evaluation.parsing_evaluation import ParsingEvaluator

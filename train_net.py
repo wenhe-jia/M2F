@@ -59,6 +59,7 @@ from mask2former import (
     MaskFormerParsingInstanceDatasetMapper,
     InsSeg2SemSegEvaluator,
     ParsingSemanticSegmentorWithTTA,
+    ParsingEvaluator,
 )
 
 
@@ -82,25 +83,19 @@ class Trainer(DefaultTrainer):
         evaluator_type = MetadataCatalog.get(dataset_name).evaluator_type
         # semantic segmentation
         if evaluator_type in ["sem_seg", "ade20k_panoptic_seg"]:
-            if "instance" in cfg.DATASETS.TRAIN[0] and "semseg" in dataset_name:
-                evaluator_list.append(
-                    InsSeg2SemSegEvaluator(
-                        dataset_name,
-                        distributed=True,
-                        output_dir=output_folder,
-                    )
+            evaluator_list.append(
+                SemSegEvaluator(
+                    dataset_name,
+                    distributed=True,
+                    output_dir=output_folder,
                 )
-            else:
-                evaluator_list.append(
-                    SemSegEvaluator(
-                        dataset_name,
-                        distributed=True,
-                        output_dir=output_folder,
-                    )
-                )
+            )
         # instance segmentation
         if evaluator_type == "coco":
-            evaluator_list.append(COCOEvaluator(dataset_name, output_dir=output_folder))
+            if cfg.MODEL.MASK_FORMER.TEST.PARSING_ON:
+                evaluator_list.append(ParsingEvaluator(dataset_name, output_dir=output_folder))
+            else:
+                evaluator_list.append(COCOEvaluator(dataset_name, output_dir=output_folder))
         # panoptic segmentation
         if evaluator_type in [
             "coco_panoptic_seg",

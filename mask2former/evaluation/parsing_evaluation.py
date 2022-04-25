@@ -205,23 +205,24 @@ class ParsingEvaluator(DatasetEvaluator):
                 "instances" that contains :class:`Instances`.
         """
         # todo append correct output type to prediction
-        outputs=outputs[-1]['parsing']
+        outputs = outputs[-1]['parsing']
         for output in outputs:
-            prediction = {"image_id": inputs[0]["image_id"]+1}
+            prediction = {"image_id": inputs[0]["image_id"] -1}
             prediction['category_id'] = output['category_id']
             prediction['parsing'] = csr_matrix(output['parsing'])
-            prediction['score'] = output['score']
+            prediction['score'] = output['instance_score']
             if len(prediction) > 1:
                 self._predictions.append(prediction)
 
         _, _ = generate_parsing_result([output['parsing'] for output in outputs],
-                                       [output['instance_scores'] for output in outputs],
-                                       [output['part_scores'] for output in outputs],
-                                       [output['parsing_bbox_scores'] for output in outputs],
+                                       [output['instance_score'] for output in outputs],
+                                       [output['part_pixel_scores'] for output in outputs],
+                                       [output['parsing_bbox_score'] for output in outputs],
                                        semseg=None,
-                                       img_info=self.parsing_GT.get_img_info(inputs[0]['image_id']),
+                                       img_info=self.parsing_GT.get_img_info(inputs[0]['image_id'] -1),
                                        output_folder=self._output_dir,
                                        )
+
 
     def evaluate(self, img_ids=None):
         """
@@ -292,7 +293,7 @@ class ParsingEvaluator(DatasetEvaluator):
             self._logger.info("Annotations are not available for evaluation.")
             return
 
-        assert tasks[0] in {"parsing", "Parsing"}, f"Got unknown task: {tasks}!"
+        # assert tasks[0] in {"parsing", "Parsing"}, f"Got unknown task: {tasks}!"
 
         parsing_eval = (
             _evaluate_predictions_on_parsing(
