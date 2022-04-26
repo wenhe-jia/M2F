@@ -57,6 +57,7 @@ class ParsingEval(object):
             self._logger.info('=' * 80)
 
     def _prepare_APp(self):
+        self._logger.info('preparing for calucate APp')
         class_recs = dict()
         npos = 0
         image_ids = self.parsingGt.coco.getImgIds()
@@ -65,13 +66,14 @@ class ParsingEval(object):
             ann_ids = self.parsingGt.coco.getAnnIds(imgIds=image_id, iscrowd=None)
             objs = self.parsingGt.coco.loadAnns(ann_ids)
             # gt_box = []
-            parsing_ids = [obj["parsing_id"] for obj in objs]
+            parsing_ids = [obj["parsing_id"] for obj in objs if obj['category_id'] == 0]
             anno_adds = get_parsing(
                 self.parsingGt.root, self.parsingGt.coco.loadImgs(image_id)[0]['file_name'], parsing_ids
             )
             npos = npos + len(anno_adds)
             det = [False] * len(anno_adds)
             class_recs[image_id] = {'anno_adds': anno_adds, 'det': det}
+        self._logger.info('prepare done')
         return class_recs, npos
 
     def _voc_ap(self, rec, prec, use_07_metric=False):
@@ -108,6 +110,8 @@ class ParsingEval(object):
         return ap
 
     def cal_one_mean_iou(self, gt, pre):
+        # gt : single person parsing label map
+        # pred : single person parsing pred label map
         k = (gt >= 0) & (gt < self.num_parsing)
         hist = np.bincount(
             self.num_parsing * gt[k].astype(int) + pre[k], minlength=self.num_parsing ** 2
@@ -339,7 +343,7 @@ class ParsingEval(object):
             ovmax = -np.inf
             jmax = -1
 
-            mask0 = parsings[cur_id]
+            mask0 = parsings[cur_id]  # curr pred, single person instance
             mask_pred = mask0.astype(np.int)
             mask_gt_u = seg_iou_max = None
             for i in range(len(R[0]['anno_adds'])):

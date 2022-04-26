@@ -207,7 +207,7 @@ class ParsingEvaluator(DatasetEvaluator):
         # todo append correct output type to prediction
         outputs = outputs[-1]['parsing']
         for output in outputs:
-            prediction = {"image_id": inputs[0]["image_id"] -1}
+            prediction = {"image_id": inputs[0]["image_id"]}
             prediction['category_id'] = output['category_id']
             prediction['parsing'] = csr_matrix(output['parsing'])
             prediction['score'] = output['instance_score']
