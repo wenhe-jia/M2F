@@ -80,7 +80,8 @@ class ParsingEvaluator(DatasetEvaluator):
             use_fast_impl=True,
             kpt_oks_sigmas=(),
             allow_cached_coco=True,
-            parsing_metrics=('mIoU', 'APp', 'APr')
+            parsing_metrics=('mIoU', 'APp', 'APr'),
+            # parsing_metrics=('APh'),
     ):
         """
         Args:
@@ -219,7 +220,7 @@ class ParsingEvaluator(DatasetEvaluator):
                                        [output['part_pixel_scores'] for output in outputs],
                                        [output['parsing_bbox_score'] for output in outputs],
                                        semseg=None,
-                                       img_info=self.parsing_GT.get_img_info(inputs[0]['image_id'] -1),
+                                       img_info=self.parsing_GT.get_img_info(inputs[0]['image_id'] - 1),
                                        output_folder=self._output_dir,
                                        )
 

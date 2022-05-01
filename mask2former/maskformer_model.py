@@ -16,8 +16,10 @@ from detectron2.utils.memory import retry_if_cuda_oom
 from .modeling.criterion import SetCriterion
 from .modeling.matcher import HungarianMatcher
 
-import copy
+import copy, cv2
+import numpy as np
 from .data.parsing_insseg_utils import compute_parsing_IoP
+
 
 @META_ARCH_REGISTRY.register()
 class MaskFormer(nn.Module):
@@ -523,6 +525,7 @@ class MaskFormer(nn.Module):
             matched_part_ids = matching_mtx[person_id]
 
             parsing_person, parts_pix_score = self.get_person_parsing(
+                person_mask,
                 part_scores[matched_part_ids],
                 part_labels[matched_part_ids],
                 part_masks[matched_part_ids]
@@ -534,14 +537,17 @@ class MaskFormer(nn.Module):
                     "parsing": parsing_person.cpu().numpy(),  # (H, W)
                     "instance_score": person_score.cpu(),
                     "parsing_bbox_score": person_score.cpu(),
-                    "part_pixel_scores": parts_pix_score
+                    "part_pixel_scores": parts_pix_score,
+                    "person_score": person_score.cpu(),
+                    "person_mask": (person_mask > 0).cpu().to(torch.uint8).numpy().astype(np.uint8),
                 }
             )
         return res
 
-    def get_person_parsing(self, part_scores, part_labels, part_masks):
+    def get_person_parsing(self, person_mask, part_scores, part_labels, part_masks):
         im_h, im_w = part_masks.shape[-2:]
-        person_parsing = [torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device) + 1e-6]
+        # person_parsing = [torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device) + 1e-6]
+        person_parsing = [1 - person_mask.sigmoid()]
         part_pix_scores = []
         for cls_ind in range(1, self.sem_seg_head.num_classes):  # skip class 'person'
             keep_ind = torch.where(part_labels == cls_ind)[0]
@@ -562,8 +568,9 @@ class MaskFormer(nn.Module):
             part_pix_scores.append(self.pixel_score(semseg_cate).cpu())
 
         parsing_probs = torch.stack(person_parsing, dim=0)  # (C, H, W)
-        inst_max, inst_idx = torch.max(parsing_probs, dim=0)  # (H, W)
-        parsings = inst_idx.to(dtype=torch.uint8) * (inst_max >= 1 / self.sem_seg_head.num_classes).to(dtype=torch.bool)
+        parsings = parsing_probs.argmax(dim=0).to(dtype=torch.uint8)
+        # inst_max, inst_idx = torch.max(parsing_probs, dim=0)  # (H, W)
+        # parsings = inst_idx.to(dtype=torch.uint8) * (inst_max >= 1 / self.sem_seg_head.num_classes).to(dtype=torch.bool)
 
         return parsings, part_pix_scores
 

@@ -46,6 +46,7 @@ class SemSegEvaluator(object):
         ).reshape(self.num_classes, self.num_classes)
 
     def generate_gt_png(self, i, image_name, size):
+        # print(self.dataset.ann_types, self.semseg_format, '\n+\n\n\n')
         if "panoseg" not in self.dataset.ann_types:
             if self.semseg_format == "mask":
                 gt = cv2.imread(os.path.join(self.gt_dir, image_name), 0) + self.label_shift

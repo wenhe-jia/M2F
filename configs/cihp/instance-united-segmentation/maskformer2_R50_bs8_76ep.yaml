@@ -1,4 +1,4 @@
-_BASE_: Base-CIHP-InstanceSegmentation-eval_semseg.yaml
+_BASE_: Base-CIHP-UnitedInstanceSegmentation.yaml
 MODEL:
   META_ARCHITECTURE: "MaskFormer"
   SEM_SEG_HEAD:

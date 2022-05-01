@@ -21,6 +21,7 @@ class ParsingEval(object):
 
     def __init__(self, parsingGt=None, parsingPred=None, gt_dir=None, pred_dir=None, score_thresh=0.001, num_parsing=20,
                  metrics=('mIoU', 'APp','APr')):
+
         """
         Initialize ParsingEvaluator
         :param parsingGt:   datasets
@@ -37,8 +38,7 @@ class ParsingEval(object):
         self.pred_dir = pred_dir
         self.score_thresh = score_thresh
         self.num_parsing = num_parsing
-        # ('mIoU , APp , APr')
-        self.metrics = metrics
+        self.metrics = metrics  # ('mIoU , APp , APr')
         self.stats = dict()  # result summarization
         self._logger = logging.getLogger(__name__)
         #
@@ -215,7 +215,7 @@ class ParsingEval(object):
         background_ind = np.where(inst_ids == 0)[0]
         inst_ids = np.delete(inst_ids, background_ind)
         for i in inst_ids:
-            im_mask = (inst_id_map == i).astype(np.uint8)
+            im_mask = (inst_id_map == i).astype(np.uint8)  # get single human insseg mask
             masks.append(im_mask)
         return masks, len(inst_ids)
 
@@ -461,7 +461,7 @@ class ParsingEval(object):
             items = [x.strip().split() for x in rfp.readlines()]
             rfp.close()
             tmp_scores = [x[0] for x in items]
-            scores += tmp_scores
+            scores += tmp_scores  # person instance scores for curr image
 
             if n_gt_inst == 0:
                 for i in range(n_pre_inst):
@@ -472,7 +472,7 @@ class ParsingEval(object):
 
             gt_mask = np.stack(gt_mask)
             pre_mask = np.stack(pre_mask)
-            overlaps = self._compute_mask_overlaps(pre_mask, gt_mask)
+            overlaps = self._compute_mask_overlaps(pre_mask, gt_mask)  # (num_pred, num_gt)
             max_overlap_ind = np.argmax(overlaps, axis=1)
             for i in np.arange(len(max_overlap_ind)):
                 max_iou = overlaps[i][max_overlap_ind[i]]
@@ -484,6 +484,7 @@ class ParsingEval(object):
                         tp[k].append(0)
                         fp[k].append(1)
 
+        print('------', len(scores))
         all_APh = {}
         ind = np.argsort(scores)[::-1]
         for k in range(iou_thre_num):
@@ -642,13 +643,13 @@ def generate_parsing_result(parsings, instance_scores, part_scores, bbox_scores=
     is_wfp = open(save_ins_semseg.replace('png', 'txt'), 'w')
     ip_wfp = open(save_ins_parsing.replace('png', 'txt'), 'w')
 
-    # generate global_parsing
+    # generate global_parsing, which is semseg
     sorted_bbox_scores_ids = bbox_scores.argsort()
     for s_id in sorted_bbox_scores_ids:
         if bbox_scores[s_id] < semseg_thresh:
             continue
-        cur_parsing = parsings[s_id]
-        global_parsing = np.where(cur_parsing > 0, cur_parsing, global_parsing)
+        cur_parsing = parsings[s_id]  # single person parsing label map
+        global_parsing = np.where(cur_parsing > 0, cur_parsing, global_parsing)  # get part semseg label map for single image
 
     # parsing nms
     if parsing_nms_thres < 1.0:
@@ -664,9 +665,9 @@ def generate_parsing_result(parsings, instance_scores, part_scores, bbox_scores=
     for s_id in sorted_score_ids:
         if instance_scores[s_id] < score_thresh:
             continue
-        cur_parsing = parsings[s_id]
-        global_for_ins = np.where(cur_parsing > 0, cur_parsing, global_for_ins)
-        ins_semseg = np.where(cur_parsing > 0, ins_id, ins_semseg)
+        cur_parsing = parsings[s_id]  # single person parsing label map
+        global_for_ins = np.where(cur_parsing > 0, cur_parsing, global_for_ins)  # get semseg label map for single image at image scene
+        ins_semseg = np.where(cur_parsing > 0, ins_id, ins_semseg)  # get person instance map
         cur_bbox = cv2.boundingRect(cur_parsing.copy())
         x, y, w, h = cur_bbox
         filtered_part_scores[ins_id] = [p for p in part_scores[s_id]]
@@ -679,7 +680,7 @@ def generate_parsing_result(parsings, instance_scores, part_scores, bbox_scores=
     ins_ids = np.delete(ins_ids, bg_id_index)
     total_part_num = 0
     for idx in ins_ids:
-        part_label = (np.where(ins_semseg == idx, 1, 0) * global_for_ins).astype(np.uint8)
+        part_label = (np.where(ins_semseg == idx, 1, 0) * global_for_ins).astype(np.uint8)  # get single person parsing map at image scene
         part_classes = np.unique(part_label)
         for part_id in part_classes:
             if part_id == 0:
