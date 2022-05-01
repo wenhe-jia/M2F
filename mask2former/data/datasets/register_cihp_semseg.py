@@ -22,8 +22,6 @@ _PREDEFINED_SPLITS = {
 
 def register_cihp_semseg(root):
     root = os.path.join(root, "cihp")
-    # print(root)
-    # print('\n\n\n\n\n\n cihp registered in d2')
     for name, (image_dir, gt_dir, json_dir) in _PREDEFINED_SPLITS.items():
         image_dir = os.path.join(root, image_dir)
         gt_dir = os.path.join(root, gt_dir)
