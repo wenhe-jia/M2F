@@ -538,8 +538,6 @@ class MaskFormer(nn.Module):
                     "instance_score": person_score.cpu(),
                     "parsing_bbox_score": person_score.cpu(),
                     "part_pixel_scores": parts_pix_score,
-                    "person_score": person_score.cpu(),
-                    "person_mask": (person_mask > 0).cpu().to(torch.uint8).numpy().astype(np.uint8),
                 }
             )
         return res
