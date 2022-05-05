@@ -551,15 +551,27 @@ class MaskFormer(nn.Module):
             keep_ind = torch.where(part_labels == cls_ind)[0]
             if len(keep_ind) == 0:
                 semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
-            elif len(keep_ind) == 1:
-                semseg_cate = part_masks[keep_ind[0]].sigmoid()
+            # elif len(keep_ind) == 1:
+            #     semseg_cate = part_masks[keep_ind[0]].sigmoid()
+            # else:
+            #     scores_cate = part_scores[keep_ind]
+            #     masks_cate = part_masks[keep_ind].sigmoid()
+            #
+            #     # keep only one part instance for one person
+            #     max_idx = scores_cate.argmax()
+            #     semseg_cate = masks_cate[max_idx, :, :]
+
             else:
-                scores_cate = part_scores[keep_ind]
                 masks_cate = part_masks[keep_ind].sigmoid()
 
-                # keep only one part instance for one person
-                max_idx = scores_cate.argmax()
-                semseg_cate = masks_cate[max_idx, :, :]
+                paste_map = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
+                semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
+                for part_ind in range(len(keep_ind)):
+                    part_mask = masks_cate[part_ind]
+
+                    paste_map  = torch.where(part_mask > 0.5, paste_map + 1, paste_map)
+                    semseg_cate = torch.where(part_mask > 0.5, part_mask + semseg_cate, semseg_cate)
+                    semseg_cate /= paste_map
 
             person_parsing.append(semseg_cate)
             # part pixel score
@@ -567,8 +579,6 @@ class MaskFormer(nn.Module):
 
         parsing_probs = torch.stack(person_parsing, dim=0)  # (C, H, W)
         parsings = parsing_probs.argmax(dim=0).to(dtype=torch.uint8)
-        # inst_max, inst_idx = torch.max(parsing_probs, dim=0)  # (H, W)
-        # parsings = inst_idx.to(dtype=torch.uint8) * (inst_max >= 1 / self.sem_seg_head.num_classes).to(dtype=torch.bool)
 
         return parsings, part_pix_scores
 
