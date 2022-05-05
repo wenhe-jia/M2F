@@ -551,27 +551,27 @@ class MaskFormer(nn.Module):
             keep_ind = torch.where(part_labels == cls_ind)[0]
             if len(keep_ind) == 0:
                 semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
-            # elif len(keep_ind) == 1:
-            #     semseg_cate = part_masks[keep_ind[0]].sigmoid()
-            # else:
-            #     scores_cate = part_scores[keep_ind]
-            #     masks_cate = part_masks[keep_ind].sigmoid()
-            #
-            #     # keep only one part instance for one person
-            #     max_idx = scores_cate.argmax()
-            #     semseg_cate = masks_cate[max_idx, :, :]
-
+            elif len(keep_ind) == 1:
+                semseg_cate = part_masks[keep_ind[0]].sigmoid()
             else:
+                scores_cate = part_scores[keep_ind]
                 masks_cate = part_masks[keep_ind].sigmoid()
 
-                paste_map = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
-                semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
-                for part_ind in range(len(keep_ind)):
-                    part_mask = masks_cate[part_ind]
+                # keep only one part instance for one person
+                max_idx = scores_cate.argmax()
+                semseg_cate = masks_cate[max_idx, :, :]
 
-                    paste_map  = torch.where(part_mask > 0.5, paste_map + 1, paste_map)
-                    semseg_cate = torch.where(part_mask > 0.5, part_mask + semseg_cate, semseg_cate)
-                    semseg_cate /= paste_map
+            # else:
+            #     masks_cate = part_masks[keep_ind].sigmoid()
+            #
+            #     paste_map = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
+            #     semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
+            #     for part_ind in range(len(keep_ind)):
+            #         part_mask = masks_cate[part_ind]
+            #
+            #         paste_map  = torch.where(part_mask > 0.5, paste_map + 1, paste_map)
+            #         semseg_cate = torch.where(part_mask > 0.5, part_mask + semseg_cate, semseg_cate)
+            #         semseg_cate /= paste_map
 
             person_parsing.append(semseg_cate)
             # part pixel score
