@@ -401,9 +401,21 @@ class MaskFormer(nn.Module):
         # Uncomment the following to get boxes from masks (this is slow)
         # result.pred_boxes = BitMasks(mask_pred > 0).get_bounding_boxes()
 
-        # calculate average mask prob
+        # perform SOLO rescore
         mask_scores_per_image = (mask_pred.sigmoid().flatten(1) * result.pred_masks.flatten(1)).sum(1) / (result.pred_masks.flatten(1).sum(1) + 1e-6)  # pixel score
-        result.scores = scores_per_image * mask_scores_per_image
+
+        # perform QANet pixel score
+        # mask_pred = self.restrict_mask_to_fg(mask_pred)
+        # im_masks_tl = mask_pred.sigmoid() >= 0.2
+        # im_masks_th = mask_pred.sigmoid() >= (1 - 0.2)
+        # mask_scores_per_image = (torch.sum(im_masks_th, dim=(1, 2)).to(dtype=torch.float32)
+        #                      / torch.sum(im_masks_tl, dim=(1, 2)).to(dtype=torch.float32).clamp(min=1e-6))
+
+
+        # result.scores = scores_per_image
+        # result.scores = scores_per_image * mask_scores_per_image
+        result.scores = torch.pow(torch.pow(scores_per_image, 1.0) * torch.pow(mask_scores_per_image, 3.0), 1./1+3)
+
         result.pred_classes = labels_per_image
         return result
 
@@ -531,6 +543,8 @@ class MaskFormer(nn.Module):
                 part_masks[matched_part_ids]
             )
 
+            cv2.imwrite('/home/user/Program/vis/m2f-cihp/image_0_person_{}.png'.format(person_id), parsing_person.cpu().numpy()*30)
+
             res.append(
                 {
                     "category_id": 1,
@@ -564,14 +578,17 @@ class MaskFormer(nn.Module):
             else:
                 masks_cate = part_masks[keep_ind].sigmoid()
 
-                paste_map = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
+                paste_time = 0
                 semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
                 for part_ind in range(len(keep_ind)):
+                    if part_scores[part_ind] < 0.:
+                        continue
+                    paste_time += 1
                     part_mask = masks_cate[part_ind]
-
-                    paste_map  = torch.where(part_mask > 0.5, paste_map + 1, paste_map)
                     semseg_cate = torch.where(part_mask > 0.5, part_mask + semseg_cate, semseg_cate)
-                    semseg_cate /= paste_map
+
+                if paste_time > 0:
+                    semseg_cate /= paste_time
 
             person_parsing.append(semseg_cate)
             # part pixel score
@@ -593,3 +610,37 @@ class MaskFormer(nn.Module):
         pix_score = inst_hcv / inst_hcm_num
 
         return pix_score
+
+    def restrict_mask_to_fg(self, pred_mask):
+        """
+        Returns:
+            Boxes: tight bounding boxes around bitmasks.
+            If a mask is empty, it's bounding box will be all zero.
+        """
+        assert(len(pred_mask.shape) == 3)
+
+        _pred_mask = copy.deepcopy(pred_mask)
+        binary_logits = (_pred_mask > 0).int()
+
+        boxes = torch.zeros(binary_logits.shape[0], 4, dtype=torch.float32)
+        x_any = torch.any(binary_logits, dim=1)
+        y_any = torch.any(binary_logits, dim=2)
+        for idx in range(binary_logits.shape[0]):
+            x = torch.where(x_any[idx, :])[0]
+            y = torch.where(y_any[idx, :])[0]
+            if len(x) > 0 and len(y) > 0:
+                boxes[idx, :] = torch.as_tensor(
+                    [x[0], y[0], x[-1] + 1, y[-1] + 1], dtype=torch.float32
+                )
+
+        _mask = torch.zeros(
+            boxes.shape[0], binary_logits.shape[1], binary_logits.shape[2], dtype=torch.float32, device=pred_mask.device
+        )
+        for ins_id in range(boxes.shape[0]):
+            box = boxes[ins_id]
+            _mask[ins_id, int(box[1]):int(box[3]), int(box[0]):int(box[2])] = 1
+
+        return pred_mask * _mask
+
+
+
