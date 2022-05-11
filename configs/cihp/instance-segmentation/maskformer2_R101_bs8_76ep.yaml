@@ -10,7 +10,7 @@ MODEL:
     # NORM: "SyncBN"
     RES5_MULTI_GRID: [1, 1, 1]  # not used
 INPUT:
-  MIN_SIZE_TEST: 640
+  MIN_SIZE_TEST: 800
 TEST:
   AUG:
     ENABLED: False
