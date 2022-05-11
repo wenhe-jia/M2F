@@ -19,7 +19,7 @@ class ParsingEval(object):
     Evaluate parsing
     """
 
-    def __init__(self, parsingGt=None, parsingPred=None, gt_dir=None, pred_dir=None, score_thresh=0.001, num_parsing=20,
+    def __init__(self, parsingGt=None, parsingPred=None, partPred=None, humanPred=None, gt_dir=None, pred_dir=None, score_thresh=0.001, num_parsing=20,
                  metrics=('mIoU', 'APp','APr')):
 
         """
@@ -30,6 +30,9 @@ class ParsingEval(object):
         """
         self.parsingGt = parsingGt
         self.parsingPred = parsingPred
+        self.partPred = partPred
+        self.humanPred = humanPred
+        
         self.params = {}  # evaluation parameters
         self.params = Params(iouType='iou')  # parameters
         self.par_thresholds = self.params.pariouThrs
@@ -166,7 +169,7 @@ class ParsingEval(object):
         Split a single mixed mask into several class-specified masks.
         Input:
             instance_img  -- An index map with shape [h, w]
-            id_to_convert -- A list of instance part IDs that suppose to
+              -- A list of instance part IDs that suppose to
                             extract from instance_img, if *None*, extract all the
                             ID maps except for background.
         Return:
@@ -245,28 +248,36 @@ class ParsingEval(object):
             gt_id = []
             for line in rfp.readlines():
                 line = line.strip().split(' ')
-                gt_part_id.append([int(line[0]), int(line[1])])  # part_id, part_category
+                gt_part_id.append([int(line[0]), int(line[1])])  # part_id, part_category, discard human_id
                 if int(line[1]) == class_id:
                     gt_id.append(int(line[0]))
             rfp.close()
 
-            instance_img_pred = Image.open(os.path.join(instance_par_pred_dir, img_name + '.png'))
-            instance_img_pred = np.array(instance_img_pred)
-            # Each line has two numbers: "class_id score"
-            rfp = open(os.path.join(instance_par_pred_dir, img_name + '.txt'), 'r')
-            # Instance ID from predicted file.
-            pred_id = []
-            pred_scores = []
-            for i, line in enumerate(rfp.readlines()):
-                line = line.strip().split(' ')
-                if int(line[0]) == class_id:
-                    pred_id.append(i + 1)
-                    pred_scores.append(float(line[1]))
-            rfp.close()
+            # instance_img_pred = Image.open(os.path.join(instance_par_pred_dir, img_name + '.png'))
+            # instance_img_pred = np.array(instance_img_pred)
+            # # Each line has two numbers: "class_id score"
+            # rfp = open(os.path.join(instance_par_pred_dir, img_name + '.txt'), 'r')
+            # # Instance ID from predicted file.
+            # pred_id = []
+            # pred_scores = []
+            # for i, line in enumerate(rfp.readlines()):
+            #     line = line.strip().split(' ')
+            #     if int(line[0]) == class_id:
+            #         pred_id.append(i + 1)
+            #         pred_scores.append(float(line[1]))
+            # rfp.close()
+
+            partPred_im = [x for x in self.partPred if x["img_name"] == img_name]
+            partPred_cls = [x for x in partPred_im if x["category_id"] == class_id]
+
+            pred_masks = [x["mask"].toarray().astype(np.uint8) for x in partPred_cls]
+            pred_scores = [float(x["score"]) for x in partPred_cls]
+            num_pred_instance = len(partPred_cls)
+            
 
             # Mask for specified class, i.e., *class_id*
             gt_masks, num_gt_instance = self._split_masks(instance_img_gt, set(gt_id))
-            pred_masks, num_pred_instance = self._split_masks(instance_img_pred, set(pred_id))
+            # pred_masks, num_pred_instance = self._split_masks(instance_img_pred, set(pred_id))
             num_gt_masks += num_gt_instance
             num_pred_masks += num_pred_instance
             if num_pred_instance == 0:
@@ -394,16 +405,29 @@ class ParsingEval(object):
         self._logger.info('Evaluating AP^r')
         instance_par_pred_dir = os.path.join(self.pred_dir, 'instance_parsing')
         instance_par_gt_dir = self.gt_dir.replace('Images', 'Instance_ids')
-        assert os.path.exists(instance_par_pred_dir)
+        # assert os.path.exists(instance_par_pred_dir)
         assert os.path.exists(instance_par_gt_dir)
 
+        tmp_instance_par_gt_dir = instance_par_gt_dir
+        # img_name_list = []
+        # print(instance_par_gt_dir, '+')
+        img_name_list =  [x.split("/")[-1].split(".")[0] for x in
+                             glob.glob(tmp_instance_par_gt_dir+ '/*') if x[-3:] == 'txt']
+        # print(len(img_name_list), img_name_list[0], '+')
+
+        # while len(img_name_list) == 0:
+        #     img_name_list = [x.replace(instance_par_gt_dir + '/', '')[:-4] for x in
+        #                      glob.glob(tmp_instance_par_gt_dir) if x[-3:] == 'txt']
+        #     tmp_instance_par_gt_dir += '/*'
+
+
         # img_name_list = [x[:-4] for x in os.listdir(instance_par_pred_dir) if x[-3:] == 'txt']
-        tmp_instance_par_pred_dir = instance_par_pred_dir
-        img_name_list = []
-        while len(img_name_list) == 0:
-            img_name_list = [x.replace(instance_par_pred_dir + '/', '')[:-4] for x in
-                             glob.glob(tmp_instance_par_pred_dir) if x[-3:] == 'txt']
-            tmp_instance_par_pred_dir += '/*'
+        # tmp_instance_par_pred_dir = instance_par_pred_dir
+        # img_name_list = []
+        # while len(img_name_list) == 0:
+        #     img_name_list = [x.replace(instance_par_pred_dir + '/', '')[:-4] for x in
+        #                      glob.glob(tmp_instance_par_pred_dir) if x[-3:] == 'txt']
+        #     tmp_instance_par_pred_dir += '/*'
         APr = np.zeros((self.num_parsing - 1, len(self.par_thresholds)))
         with tqdm(total=self.num_parsing - 1) as pbar:
             pbar.set_description('Calculating AP^r ..')
@@ -484,7 +508,6 @@ class ParsingEval(object):
                         tp[k].append(0)
                         fp[k].append(1)
 
-        print('------', len(scores))
         all_APh = {}
         ind = np.argsort(scores)[::-1]
         for k in range(iou_thre_num):
@@ -702,9 +725,9 @@ def generate_parsing_result(parsings, instance_scores, part_scores, bbox_scores=
         )
         re_ins_id += 1
 
-    cv2.imwrite(save_global_parsing, global_parsing.astype(np.uint8))
-    cv2.imwrite(save_ins_semseg, reindex_ins_semseg.astype(np.uint8))
-    cv2.imwrite(save_ins_parsing, ins_parsing.astype(np.uint8))
+    cv2.imwrite(save_global_parsing, global_parsing.astype(np.uint8))  # mIoU
+    cv2.imwrite(save_ins_semseg, reindex_ins_semseg.astype(np.uint8))  # APh
+    cv2.imwrite(save_ins_parsing, ins_parsing.astype(np.uint8))  # APr
     is_wfp.close()
     ip_wfp.close()
 

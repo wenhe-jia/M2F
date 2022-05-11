@@ -260,8 +260,7 @@ class MaskFormer(nn.Module):
                     mask_cls_result = mask_cls_result.to(mask_pred_result)  # change device as mask_pred_result
 
                     r = retry_if_cuda_oom(self.parsing_inference)(mask_cls_result, mask_pred_result)
-                    processed_results[-1]["parsing"] = list(r)
-
+                    processed_results[-1]["parsing"] = r
                 else:
                     if self.sem_seg_postprocess_before_inference:
                         mask_pred_result = retry_if_cuda_oom(sem_seg_postprocess)(
@@ -513,6 +512,7 @@ class MaskFormer(nn.Module):
         part_scores = pred_scores[torch.where(pred_labels != 0)[0]]
         part_masks  = pred_masks[torch.where(pred_labels != 0)[0], :, :]
 
+        person_labels = pred_labels[torch.where(pred_labels == 0)[0]]
         person_scores = pred_scores[torch.where(pred_labels == 0)[0]]
         person_masks = pred_masks[torch.where(pred_labels == 0)[0], :, :]
 
@@ -520,8 +520,31 @@ class MaskFormer(nn.Module):
         person_scores = person_scores[person_keep_ind]
         person_masks = person_masks[person_keep_ind, :, :]
 
+        part_res = []
+        for part_idx in range(part_labels.shape[0]):
+            if part_scores[part_idx] < 0.1:
+                continue
+            part_res.append(
+                {
+                    "category_id": part_labels[part_idx].cpu(),
+                    "score": part_scores[part_idx].cpu(),
+                    "mask": (part_masks[part_idx] > 0.).cpu().numpy().astype(np.uint8),
+                }
+            )
 
-        res = []
+        human_res = []
+        for person_idx in range(person_scores.shape[0]):
+            # if person_scores[person_idx] < 0.1:
+            #     continue
+            human_res.append(
+                {
+                    "category_id": person_labels[person_idx].cpu(),
+                    "score": person_scores[person_idx].cpu(),
+                    "mask": (person_masks[person_idx] > 0.).cpu().numpy().astype(np.uint8),
+                }
+            )
+
+        pars_res = []
         # prepare matching infos, matching is based on
         matching_mtx = torch.zeros((person_scores.shape[0], part_scores.shape[0]), dtype=torch.uint8)
         person_ids = torch.arange(person_masks.shape[0])
@@ -543,9 +566,7 @@ class MaskFormer(nn.Module):
                 part_masks[matched_part_ids]
             )
 
-            cv2.imwrite('/home/user/Program/vis/m2f-cihp/image_0_person_{}.png'.format(person_id), parsing_person.cpu().numpy()*30)
-
-            res.append(
+            pars_res.append(
                 {
                     "category_id": 1,
                     "parsing": parsing_person.cpu().numpy(),  # (H, W)
@@ -554,7 +575,12 @@ class MaskFormer(nn.Module):
                     "part_pixel_scores": parts_pix_score,
                 }
             )
-        return res
+
+        return {
+            "parsing_outputs": pars_res,
+            "part_outputs": part_res,
+            "human_outputs": human_res
+        }
 
     def get_person_parsing(self, person_mask, part_scores, part_labels, part_masks):
         im_h, im_w = part_masks.shape[-2:]
