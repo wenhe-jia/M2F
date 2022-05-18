@@ -261,6 +261,8 @@ class MaskFormer(nn.Module):
 
                     r = retry_if_cuda_oom(self.parsing_inference)(mask_cls_result, mask_pred_result)
                     processed_results[-1]["parsing"] = r
+                    # r = retry_if_cuda_oom(self.semseg_inference_for_insseg_model)(mask_cls_result, mask_pred_result)
+                    # processed_results[-1]["sem_seg"] = r
                 else:
                     if self.sem_seg_postprocess_before_inference:
                         mask_pred_result = retry_if_cuda_oom(sem_seg_postprocess)(
@@ -484,6 +486,35 @@ class MaskFormer(nn.Module):
         #     semseg_im = torch.where(_ins_mask > 0, label_mask, semseg_im)
         #
         # return semseg_im
+    def paste_instance_to_semseg_label_map(self, labels, scores, prob_masks):
+        '''
+        Paste sigmoid results for each category
+        '''
+        im_h, im_w = prob_masks.shape[-2:]
+        semseg_im = [torch.zeros((im_h, im_w), dtype=torch.float32, device=prob_masks.device) + 1e-6]
+        for cls_ind in range(self.sem_seg_head.num_classes):  # 19 for CIHP, without background
+            keep_ind = torch.where(labels == cls_ind)
+            scores_cate = scores[keep_ind]
+            masks_cate = prob_masks[keep_ind].sigmoid()
+
+            # paste_time = 0
+            semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=prob_masks.device)
+            _indx = scores_cate.argsort()
+            for k in range(len(_indx)):
+                if scores_cate[_indx[k]] < self.parsing_ins_score_thr:
+                    continue
+                _ins_mask = masks_cate[_indx[k]] * scores_cate[_indx[k]]
+                semseg_cate = torch.where(_ins_mask > 0.5, _ins_mask + semseg_cate, semseg_cate)
+                # paste_time += 1
+
+            # if paste_time > 0:
+            #     semseg_im.append(semseg_cate / paste_time)
+            # else:
+            #     semseg_im.append(semseg_cate)
+
+            semseg_im.append(semseg_cate)
+        semseg_mask = torch.stack(semseg_im, dim=0).argmax(dim=0).cpu().numpy()
+        return semseg_mask
 
     def parsing_inference(self, mask_cls, mask_pred):
         # mask_cls(Q, C)
@@ -519,6 +550,9 @@ class MaskFormer(nn.Module):
         person_keep_ind = torch.where(person_scores > 0.)[0]  # self.parsing_ins_score_thr
         person_scores = person_scores[person_keep_ind]
         person_masks = person_masks[person_keep_ind, :, :]
+
+        semseg_res = self.paste_instance_to_semseg_label_map(part_labels, part_scores, part_masks)
+
 
         part_res = []
         for part_idx in range(part_labels.shape[0]):
@@ -577,6 +611,7 @@ class MaskFormer(nn.Module):
             )
 
         return {
+            "semseg_outputs": semseg_res,
             "parsing_outputs": pars_res,
             "part_outputs": part_res,
             "human_outputs": human_res

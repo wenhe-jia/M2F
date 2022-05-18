@@ -44,6 +44,8 @@ MODEL:
       OBJECT_MASK_THRESHOLD: 0.8
       PARSING_ON: True
       PARSING_INS_SCORE_THR: 0.3
+DATASETS:
+  TEST: ("cihp_semseg_val",)
 SOLVER:
   IMS_PER_BATCH: 8  # 16
   BASE_LR: 0.00005 # 0.0001
@@ -54,7 +56,7 @@ INPUT:
 TEST:
   EVAL_PERIOD: 20000
   AUG:
-    ENABLED: False
+    ENABLED: True
     MIN_SIZES: (640,)
     MAX_SIZE: 1400
     FLIP: True

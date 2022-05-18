@@ -277,7 +277,7 @@ class Trainer(DefaultTrainer):
         logger = logging.getLogger("detectron2.trainer")
         # In the end of training, run an evaluation with TTA.
         logger.info("Running inference with test-time augmentation ...")
-        if 'cihp' in cfg.DATASETS.TEST[0]:
+        if cfg.MODEL.MASK_FORMER.TEST.PARSING_ON:
             logger.info("\n\n===========\nUsing ParsingSemanticSegmentorWithTTA\n==========\n\n")
             model = ParsingSemanticSegmentorWithTTA(cfg, model)
         else:
