@@ -492,8 +492,8 @@ class MaskFormer(nn.Module):
         '''
         im_h, im_w = prob_masks.shape[-2:]
         semseg_im = [torch.zeros((im_h, im_w), dtype=torch.float32, device=prob_masks.device) + 1e-6]
-        for cls_ind in range(self.sem_seg_head.num_classes):  # 19 for CIHP, without background
-            keep_ind = torch.where(labels == cls_ind)
+        for cls_ind in range(self.sem_seg_head.num_classes - 1):  # 0~18 for CIHP, without background
+            keep_ind = torch.where(labels == cls_ind + 1)
             scores_cate = scores[keep_ind]
             masks_cate = prob_masks[keep_ind].sigmoid()
 

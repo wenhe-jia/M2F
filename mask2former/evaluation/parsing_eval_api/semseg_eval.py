@@ -43,7 +43,13 @@ class SemSegEvaluator(object):
         self._logger=logging.getLogger(__name__)
 
     def fast_hist(self, a, b):
+        # print('gt & pre shape: ', a.shape, b.shape)
         k = (a >= 0) & (a < self.num_classes)
+        # print(np.unique(k))
+        # print(np.unique(self.num_classes * a[k].astype(int)), np.unique(self.num_classes * a[k].astype(int) + b[k]))
+        # print('bincount: ', np.bincount(
+        #     self.num_classes * a[k].astype(int) + b[k], minlength=self.num_classes ** 2
+        # ).shape)
         return np.bincount(
             self.num_classes * a[k].astype(int) + b[k], minlength=self.num_classes ** 2
         ).reshape(self.num_classes, self.num_classes)
@@ -80,12 +86,11 @@ class SemSegEvaluator(object):
 
         for i in tqdm(self.ids, desc='Calculating IoU ..'):
             image_name = self.dataset.coco.imgs[i]['file_name'].replace(*self.name_trans)
-            # if not (os.path.exists(os.path.join(self.gt_dir, image_name)) and  # noqa: W504
-            #         os.path.exists(os.path.join(self.pre_dir, image_name))):
-            #     continue
-            # pre_png = cv2.imread(os.path.join(self.pre_dir, image_name), 0)
-            semseg_res = [x for x in self.preds if image_name.replace('png', 'jpg') in x][0]
-            pre_png = semseg_res[image_name.replace('png', 'jpg')]
+            semseg_res = [x for x in self.preds if image_name.replace('png', 'jpg') in x]
+            if len(semseg_res) == 0:
+                continue
+
+            pre_png = semseg_res[0][image_name.replace('png', 'jpg')]
             gt_png = self.generate_gt_png(i, image_name, pre_png.shape)
 
             assert gt_png.shape == pre_png.shape, '{} VS {}'.format(str(gt_png.shape), str(pre_png.shape))
