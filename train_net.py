@@ -56,11 +56,16 @@ from mask2former import (
     MaskFormerSemanticDatasetMapper,
     SemanticSegmentorWithTTA,
     add_maskformer2_config,
+    MaskFormerParsingSemanticDatasetMapper,
     MaskFormerParsingInstanceDatasetMapper,
     InsSeg2SemSegEvaluator,
     ParsingSemanticSegmentorWithTTA,
     ParsingEvaluator,
+    SingleParsingSemSegEvaluator,
+    build_detection_test_loader,
 )
+
+from PIL import Image
 
 
 class Trainer(DefaultTrainer):
@@ -84,13 +89,23 @@ class Trainer(DefaultTrainer):
 
         # semantic segmentation
         if evaluator_type in ["sem_seg", "ade20k_panoptic_seg"]:
-            evaluator_list.append(
-                SemSegEvaluator(
-                    dataset_name,
-                    distributed=True,
-                    output_dir=output_folder,
+            if "lip" in cfg.DATASETS.TEST[0]:
+                print("\n\n===========\nUsing SingleParsingSemSegEvaluator\n===========\n\n")
+                evaluator_list.append(
+                    SingleParsingSemSegEvaluator(
+                        dataset_name,
+                        distributed=True,
+                        output_dir=output_folder,
+                    )
                 )
-            )
+            else:
+                evaluator_list.append(
+                    SemSegEvaluator(
+                        dataset_name,
+                        distributed=True,
+                        output_dir=output_folder,
+                    )
+                )
         # instance segmentation
         if evaluator_type == "coco":
             if cfg.MODEL.MASK_FORMER.TEST.PARSING_ON:
@@ -178,6 +193,9 @@ class Trainer(DefaultTrainer):
             return build_detection_train_loader(cfg, mapper=mapper)
         elif cfg.INPUT.DATASET_MAPPER_NAME == "mask_former_parsing_instance":
             mapper = MaskFormerParsingInstanceDatasetMapper(cfg, True)
+            return build_detection_train_loader(cfg, mapper=mapper)
+        elif cfg.INPUT.DATASET_MAPPER_NAME == "mask_former_parsing_semantic":
+            mapper = MaskFormerParsingSemanticDatasetMapper(cfg, True)
             return build_detection_train_loader(cfg, mapper=mapper)
         else:
             mapper = None
@@ -273,12 +291,23 @@ class Trainer(DefaultTrainer):
         return optimizer
 
     @classmethod
+    def build_test_loader(cls, cfg, dataset_name):
+        """
+        Returns:
+            iterable
+
+        It now calls :func:`detectron2.data.build_detection_test_loader`.
+        Overwrite it if you'd like a different data loader.
+        """
+        return build_detection_test_loader(cfg, dataset_name)
+
+    @classmethod
     def test_with_TTA(cls, cfg, model):
         logger = logging.getLogger("detectron2.trainer")
         # In the end of training, run an evaluation with TTA.
         logger.info("Running inference with test-time augmentation ...")
-        if 'cihp' in cfg.DATASETS.TEST[0]:
-            logger.info("\n\n===========\nUsing ParsingSemanticSegmentorWithTTA\n==========\n\n")
+        if 'cihp' in cfg.DATASETS.TEST[0] or 'lip' in cfg.DATASETS.TEST[0]:
+            logger.info("\n\n===========\nUsing ParsingSemanticSegmentorWithTTA\n===========\n\n")
             model = ParsingSemanticSegmentorWithTTA(cfg, model)
         else:
             model = SemanticSegmentorWithTTA(cfg, model)
@@ -318,8 +347,8 @@ def main(args):
         DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
             cfg.MODEL.WEIGHTS, resume=args.resume
         )
-        res = Trainer.test(cfg, model)
-        # res = {}
+        # res = Trainer.test(cfg, model)
+        res = {}
         if cfg.TEST.AUG.ENABLED:
             res.update(Trainer.test_with_TTA(cfg, model))
         if comm.is_main_process():
@@ -339,6 +368,6 @@ if __name__ == "__main__":
         args.num_gpus,
         num_machines=args.num_machines,
         machine_rank=args.machine_rank,
-        dist_url=args.dist_url,
+        dist_url='tcp://127.0.0.1:50500', # args.dist_url,
         args=(args,),
     )

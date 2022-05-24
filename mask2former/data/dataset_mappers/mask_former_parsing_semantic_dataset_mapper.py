@@ -13,10 +13,15 @@ from detectron2.data import transforms as T
 from detectron2.projects.point_rend import ColorAugSSDTransform
 from detectron2.structures import BitMasks, Instances
 
-__all__ = ["MaskFormerSemanticDatasetMapper"]
+import random, cv2, os
+from PIL import Image
+from ..parsing_utils import flip_parsing_semantic_category, center_to_target_size, affine_to_target_size
+from ..transforms.augmentation_impl import ResizeByAspectRatio, ResizeByScale, RandomCenterRotation
+
+__all__ = ["MaskFormerParsingSemanticDatasetMapper"]
 
 
-class MaskFormerSemanticDatasetMapper:
+class MaskFormerParsingSemanticDatasetMapper:
     """
     A callable which takes a dataset dict in Detectron2 Dataset format,
     and map it into a format used by MaskFormer for semantic segmentation.
@@ -34,10 +39,12 @@ class MaskFormerSemanticDatasetMapper:
         self,
         is_train=True,
         *,
+        multi_person_parsing,
         augmentations,
         image_format,
         ignore_label,
         size_divisibility,
+        parsing_flip_map
     ):
         """
         NOTE: this interface is experimental.
@@ -49,49 +56,77 @@ class MaskFormerSemanticDatasetMapper:
             size_divisibility: pad image size to be divisible by this value
         """
         self.is_train = is_train
+        self.multi_person_parsing = multi_person_parsing
         self.tfm_gens = augmentations
         self.img_format = image_format
         self.ignore_label = ignore_label
         self.size_divisibility = size_divisibility
+        self.parsing_flip_map = parsing_flip_map
 
         logger = logging.getLogger(__name__)
         mode = "training" if is_train else "inference"
         logger.info(f"[{self.__class__.__name__}] Augmentations used in {mode}: {augmentations}")
 
+        self.hflip_prob = 0.5
+
+        if not self.multi_person_parsing:
+            self.train_size = [384, 512]  # w, h
+
     @classmethod
     def from_config(cls, cfg, is_train=True):
+        # decide whether to parse multi person
+        multi_person_parsing = True
+
         # Build augmentation
-        augs = [
-            T.ResizeShortestEdge(
-                cfg.INPUT.MIN_SIZE_TRAIN,
-                cfg.INPUT.MAX_SIZE_TRAIN,
-                cfg.INPUT.MIN_SIZE_TRAIN_SAMPLING,
-            )
-        ]
-        if cfg.INPUT.CROP.ENABLED:
-            augs.append(
-                T.RandomCrop_CategoryAreaConstraint(
-                    cfg.INPUT.CROP.TYPE,
-                    cfg.INPUT.CROP.SIZE,
-                    cfg.INPUT.CROP.SINGLE_CATEGORY_MAX_AREA,
-                    cfg.MODEL.SEM_SEG_HEAD.IGNORE_VALUE,
+        if "lip" in cfg.DATASETS.TRAIN[0]:  # for single person human parsing, e.g. LIP and ATR
+            multi_person_parsing = False
+
+            train_size = cfg.INPUT.SINGLE_PARSING.SCALES[0]
+            aspect_ratio = train_size[0] * 1.0 / train_size[1]
+            scale_factor = cfg.INPUT.SINGLE_PARSING.SCALE_FACTOR
+
+            augs = [
+                # ResizeByAspectRatio(aspect_ratio, interp=Image.NEAREST),
+                ResizeByScale(scale_factor)
+            ]
+
+            if cfg.INPUT.SINGLE_PARSING.ROTATION:
+                rot_range = cfg.INPUT.SINGLE_PARSING.ROT_FACTOR
+                augs.append(
+                    RandomCenterRotation(rot_range)
                 )
-            )
-        if cfg.INPUT.COLOR_AUG_SSD:
-            augs.append(ColorAugSSDTransform(img_format=cfg.INPUT.FORMAT))
-        augs.append(T.RandomFlip())
+        else:  # for multi person human parsing, e.g. CIHP and MHP
+            augs = [
+                T.ResizeShortestEdge(
+                    cfg.INPUT.MIN_SIZE_TRAIN,
+                    cfg.INPUT.MAX_SIZE_TRAIN,
+                    cfg.INPUT.MIN_SIZE_TRAIN_SAMPLING,
+                )
+            ]
+            if cfg.INPUT.CROP.ENABLED:
+                augs.append(
+                    T.RandomCrop_CategoryAreaConstraint(
+                        cfg.INPUT.CROP.TYPE,
+                        cfg.INPUT.CROP.SIZE,
+                        cfg.INPUT.CROP.SINGLE_CATEGORY_MAX_AREA,
+                        cfg.MODEL.SEM_SEG_HEAD.IGNORE_VALUE,
+                    )
+                )
+            if cfg.INPUT.COLOR_AUG_SSD:
+                augs.append(ColorAugSSDTransform(img_format=cfg.INPUT.FORMAT))
 
         # Assume always applies to the training set.
         dataset_names = cfg.DATASETS.TRAIN
         meta = MetadataCatalog.get(dataset_names[0])
-        ignore_label = meta.ignore_label
 
         ret = {
             "is_train": is_train,
+            "multi_person_parsing": multi_person_parsing,
             "augmentations": augs,
             "image_format": cfg.INPUT.FORMAT,
-            "ignore_label": ignore_label,
-            "size_divisibility": cfg.INPUT.SIZE_DIVISIBILITY,
+            "ignore_label": meta.ignore_label,
+            "size_divisibility": cfg.INPUT.SIZE_DIVISIBILITY,  # 512
+            "parsing_flip_map": meta.flip_map
         }
         return ret
 
@@ -109,6 +144,10 @@ class MaskFormerSemanticDatasetMapper:
         image = utils.read_image(dataset_dict["file_name"], format=self.img_format)
         utils.check_image_size(dataset_dict, image)
 
+        # image_name = dataset_dict["file_name"].split('/')[-1].split('.')[0]
+        # save_dir = '/home/user/Program/vis/m2f-cihp/Mask2Former/check-lip/train/train_'+image_name+'/'
+        # os.makedirs(save_dir)
+
         if "sem_seg_file_name" in dataset_dict:
             # PyTorch transformation not implemented for uint16, so converting it to double first
             sem_seg_gt = utils.read_image(dataset_dict.pop("sem_seg_file_name")).astype("double")
@@ -122,10 +161,27 @@ class MaskFormerSemanticDatasetMapper:
                 )
             )
 
-        aug_input = T.AugInput(image, sem_seg=sem_seg_gt)
-        aug_input, transforms = T.apply_transform_gens(self.tfm_gens, aug_input)
-        image = aug_input.image
-        sem_seg_gt = aug_input.sem_seg
+        # perform augmentation
+        if self.multi_person_parsing:
+            aug_input = T.AugInput(image, sem_seg=sem_seg_gt)
+            aug_input, transforms = T.apply_transform_gens(self.tfm_gens, aug_input)
+            image = aug_input.image
+            sem_seg_gt = aug_input.sem_seg
+            image, sem_seg_gt = flip_parsing_semantic_category(
+                image, sem_seg_gt, self.parsing_flip_map, self.hflip_prob
+            )
+        else:
+            image, sem_seg_gt = flip_parsing_semantic_category(
+                image, sem_seg_gt, self.parsing_flip_map, self.hflip_prob
+            )
+            aug_input = T.AugInput(image, sem_seg=sem_seg_gt)
+            aug_input, transforms = T.apply_transform_gens(self.tfm_gens, aug_input)
+            image = aug_input.image
+            sem_seg_gt = aug_input.sem_seg
+
+            # TODO: pad the scaled and rotated image and gt to train size
+            # image, sem_seg_gt = center_to_target_size(image, sem_seg_gt, self.train_size)
+            image, sem_seg_gt = affine_to_target_size(image, sem_seg_gt, self.train_size)
 
         # Pad image and segmentation label here!
         image = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))
@@ -144,8 +200,10 @@ class MaskFormerSemanticDatasetMapper:
             if sem_seg_gt is not None:
                 sem_seg_gt = F.pad(sem_seg_gt, padding_size, value=self.ignore_label).contiguous()
 
-        image_shape = (image.shape[-2], image.shape[-1])  # h, w
+        # cv2.imwrite(save_dir + 'tfmd_image_{}.jpg'.format(image_name), image.numpy().transpose(1, 2, 0))
+        # cv2.imwrite(save_dir + 'tfmd_gt_{}.png'.format(image_name), sem_seg_gt.numpy() * 15)
 
+        image_shape = (image.shape[-2], image.shape[-1])  # h, w
         # Pytorch's dataloader is efficient on torch.Tensor due to shared-memory,
         # but not efficient on large generic data structures due to the use of pickle & mp.Queue.
         # Therefore it's important to use torch.Tensor.

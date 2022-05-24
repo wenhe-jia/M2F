@@ -19,6 +19,11 @@ _PREDEFINED_SPLITS = {
     "lip_semseg_val": ("Validation/Images/", "Validation/Category_ids/", "annotations/LIP_val.json"),
 }
 
+LIP_FLIP_MAP = (
+    (14, 15),  # ("Left-arm", "Right-arm"),
+    (16, 17),  # ("Left-leg", "Right-leg"),
+    (18, 19),  # ("Left-shoe", "Right-shoe"),
+)
 
 def register_lip_semseg(root):
     root = os.path.join(root, "lip")
@@ -36,7 +41,8 @@ def register_lip_semseg(root):
             sem_seg_root=gt_dir,
             evaluator_type="sem_seg",
             ignore_label=255,
-            json_file=json_dir
+            json_file=json_dir,
+            flip_map=LIP_FLIP_MAP
         )
 
 

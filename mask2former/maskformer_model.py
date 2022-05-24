@@ -18,7 +18,8 @@ from .modeling.matcher import HungarianMatcher
 
 import copy, cv2
 import numpy as np
-from .data.parsing_insseg_utils import compute_parsing_IoP
+from .data.parsing_utils import compute_parsing_IoP
+from .modeling.postprocessing import single_parsing_sem_seg_postprocess
 
 
 @META_ARCH_REGISTRY.register()
@@ -49,8 +50,10 @@ class MaskFormer(nn.Module):
         test_topk_per_image: int,
         # evaluate parsing semseg metrics(mIoU) with insseg model
         parsing_on: bool,
+        insseg_to_semseg: bool,
         parsing_ins_score_thr: float,
-        iop_thresh: float
+        iop_thresh: float,
+        multi_person_parsing: bool
     ):
         """
         Args:
@@ -99,8 +102,10 @@ class MaskFormer(nn.Module):
         self.test_topk_per_image = test_topk_per_image
         # evaluate parsing
         self.parsing_on = parsing_on
+        self.insseg_to_semseg = insseg_to_semseg
         self.parsing_ins_score_thr = parsing_ins_score_thr
         self.iop_thresh = iop_thresh
+        self.multi_person_parsing = multi_person_parsing
 
         if not self.semantic_on:
             assert self.sem_seg_postprocess_before_inference
@@ -172,8 +177,10 @@ class MaskFormer(nn.Module):
             "test_topk_per_image": cfg.TEST.DETECTIONS_PER_IMAGE,
             # evaluate parsing semseg metrics(mIoU) with insseg model
             "parsing_on": cfg.MODEL.MASK_FORMER.TEST.PARSING_ON,
+            "insseg_to_semseg": cfg.MODEL.MASK_FORMER.TEST.INSSEG_TO_SEMSEG,
             "parsing_ins_score_thr": cfg.MODEL.MASK_FORMER.TEST.PARSING_INS_SCORE_THR,
             "iop_thresh": cfg.MODEL.MASK_FORMER.TEST.IOP_THR,
+            "multi_person_parsing": cfg.MODEL.MASK_FORMER.MULTI_PERSON_PARSING,
         }
 
     @property
@@ -272,9 +279,13 @@ class MaskFormer(nn.Module):
                     if self.semantic_on:
                         r = retry_if_cuda_oom(self.semantic_inference)(mask_cls_result, mask_pred_result)  # (C, H, W)
                         if not self.sem_seg_postprocess_before_inference:
-                            r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height, width)  # (C, H_org, W_org)
+                            if self.multi_person_parsing:
+                                r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height, width)  # (C, H_org, W_org)
+                            else:
+                                # print("\n\n===========\nUsing single_parsing_sem_seg_postprocess\n===========\n\n")
+                                r = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(r, image_size, height, width)
                         processed_results[-1]["sem_seg"] = r
-
+                        
                     # panoptic segmentation inference
                     if self.panoptic_on:
                         panoptic_r = retry_if_cuda_oom(self.panoptic_inference)(mask_cls_result, mask_pred_result)
@@ -282,8 +293,12 @@ class MaskFormer(nn.Module):
 
                     # instance segmentation inference
                     if self.instance_on:
-                        instance_r = retry_if_cuda_oom(self.instance_inference)(mask_cls_result, mask_pred_result)
-                        processed_results[-1]["instances"] = instance_r  # compiled in "Instances" structure
+                        if self.insseg_to_semseg:
+                            semantic_r = retry_if_cuda_oom(self.semseg_inference_for_insseg_model)(mask_cls_result, mask_pred_result)
+                            processed_results[-1]["sem_seg"] = semantic_r
+                        else:
+                            instance_r = retry_if_cuda_oom(self.instance_inference)(mask_cls_result, mask_pred_result)
+                            processed_results[-1]["instances"] = instance_r  # compiled in "Instances" structure
 
             return processed_results
 

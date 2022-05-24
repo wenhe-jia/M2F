@@ -13,7 +13,7 @@ from detectron2.data import transforms as T
 from detectron2.projects.point_rend import ColorAugSSDTransform
 from detectron2.structures import BitMasks, Instances, polygons_to_bitmask
 
-from ..parsing_insseg_utils import get_parsing_flip_map, transform_parsing_insseg_instance_annotations
+from ..parsing_utils import get_parsing_flip_map, transform_parsing_instance_annotations
 
 __all__ = ["MaskFormerParsingInstanceDatasetMapper"]
 
@@ -69,13 +69,6 @@ class MaskFormerParsingInstanceDatasetMapper:
                 cfg.INPUT.MIN_SIZE_TRAIN_SAMPLING,
             )
         ]
-        if cfg.INPUT.CROP.ENABLED:
-            augs.append(
-                T.RandomCrop(
-                    cfg.INPUT.CROP.TYPE,
-                    cfg.INPUT.CROP.SIZE,
-                )
-            )
         if cfg.INPUT.COLOR_AUG_SSD:
             augs.append(ColorAugSSDTransform(img_format=cfg.INPUT.FORMAT))
         augs.append(T.RandomFlip())
@@ -107,13 +100,13 @@ class MaskFormerParsingInstanceDatasetMapper:
         aug_input, transforms = T.apply_transform_gens(self.tfm_gens, aug_input)
         image = aug_input.image
 
-        # transform instnace masks
+        # transform instance masks
         assert "annotations" in dataset_dict
         for anno in dataset_dict["annotations"]:
             anno.pop("keypoints", None)
 
         annos = [
-            transform_parsing_insseg_instance_annotations(obj, transforms, image.shape[:2], parsing_flip_map=self.parsing_flip_map)
+            transform_parsing_instance_annotations(obj, transforms, image.shape[:2], parsing_flip_map=self.parsing_flip_map)
             for obj in dataset_dict.pop("annotations")
             if obj.get("iscrowd", 0) == 0
         ]

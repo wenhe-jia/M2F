@@ -29,6 +29,9 @@ def add_maskformer2_config(cfg):
     # mask_former model config
     cfg.MODEL.MASK_FORMER = CN()
 
+    # for multi person and single person parsing, difference usually are data aug and eval
+    cfg.MODEL.MASK_FORMER.MULTI_PERSON_PARSING = True
+
     # loss
     cfg.MODEL.MASK_FORMER.DEEP_SUPERVISION = True
     cfg.MODEL.MASK_FORMER.NO_OBJECT_WEIGHT = 0.1
@@ -58,12 +61,14 @@ def add_maskformer2_config(cfg):
     cfg.MODEL.MASK_FORMER.TEST.OBJECT_MASK_THRESHOLD = 0.0
     cfg.MODEL.MASK_FORMER.TEST.OVERLAP_THRESHOLD = 0.0
     cfg.MODEL.MASK_FORMER.TEST.SEM_SEG_POSTPROCESSING_BEFORE_INFERENCE = False
+    
     ###### for parsing template ######
     cfg.MODEL.MASK_FORMER.TEST.PARSING_ON = False
+    cfg.MODEL.MASK_FORMER.TEST.INSSEG_TO_SEMSEG = False
     cfg.MODEL.MASK_FORMER.TEST.PARSING_INS_SCORE_THR = 0.5
     cfg.MODEL.MASK_FORMER.TEST.PIXEL_SCORE_TH = 0.25
     cfg.MODEL.MASK_FORMER.TEST.IOP_THR = 0.5
-
+    
     # Sometimes `backbone.size_divisibility` is set to 0 for some backbone (e.g. ResNet)
     # you can use this config to override
     cfg.MODEL.MASK_FORMER.SIZE_DIVISIBILITY = 32
@@ -102,6 +107,13 @@ def add_maskformer2_config(cfg):
     cfg.INPUT.IMAGE_SIZE = 1024
     cfg.INPUT.MIN_SCALE = 0.1
     cfg.INPUT.MAX_SCALE = 2.0
+
+    # single human parsing aug
+    cfg.INPUT.SINGLE_PARSING = CN()
+    cfg.INPUT.SINGLE_PARSING.SCALES = ([384, 512],)
+    cfg.INPUT.SINGLE_PARSING.SCALE_FACTOR = 0.3
+    cfg.INPUT.SINGLE_PARSING.ROTATION = False
+    cfg.INPUT.SINGLE_PARSING.ROT_FACTOR = 40
 
     # MSDeformAttn encoder configs
     cfg.MODEL.SEM_SEG_HEAD.DEFORMABLE_TRANSFORMER_ENCODER_IN_FEATURES = ["res3", "res4", "res5"]

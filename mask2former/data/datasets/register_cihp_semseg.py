@@ -19,6 +19,12 @@ _PREDEFINED_SPLITS = {
     "cihp_semseg_val": ("Validation/Images/", "Validation/Category_ids/", "annotations/CIHP_val.json"),
 }
 
+CIHP_FLIP_MAP = (
+    (14, 15),  # ("Left-arm", "Right-arm"),
+    (16, 17),  # ("Left-leg", "Right-leg"),
+    (18, 19),  # ("Left-shoe", "Right-shoe"),
+)
+
 
 def register_cihp_semseg(root):
     root = os.path.join(root, "cihp")
@@ -36,7 +42,8 @@ def register_cihp_semseg(root):
             sem_seg_root=gt_dir,
             evaluator_type="sem_seg",
             ignore_label=255,
-            json_file=json_dir
+            json_file=json_dir,
+            flip_map=CIHP_FLIP_MAP
         )
 
 
