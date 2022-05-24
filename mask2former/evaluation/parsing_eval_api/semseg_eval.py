@@ -15,12 +15,14 @@ class SemSegEvaluator(object):
     Evaluate semantic segmentation
     """
 
-    def __init__(self, dataset, root_dir, pre_dir, num_classes, gt_dir=None, metrics=("mIoU", "IoU", "F1Score")):
+    def __init__(self, dataset, preds, root_dir, num_classes, gt_dir=None, metrics=("mIoU", "IoU", "F1Score")):
         """
         Initialize SemSegEvaluator
         :return: None
         """
-        self.pre_dir = pre_dir
+
+        self.preds = preds
+        # self.pre_dir = pre_dir
         self.dataset = dataset
         self.num_classes = num_classes
         ann_fields = dataset.ann_fields
@@ -32,6 +34,7 @@ class SemSegEvaluator(object):
             self.pano_anns = dataset.pano_anns
         self.ids = dataset.ids
         self.metrics = metrics
+
         if gt_dir is not None:
             self.gt_dir = gt_dir
         else:
@@ -40,7 +43,13 @@ class SemSegEvaluator(object):
         self._logger=logging.getLogger(__name__)
 
     def fast_hist(self, a, b):
+        # print('gt & pre shape: ', a.shape, b.shape)
         k = (a >= 0) & (a < self.num_classes)
+        # print(np.unique(k))
+        # print(np.unique(self.num_classes * a[k].astype(int)), np.unique(self.num_classes * a[k].astype(int) + b[k]))
+        # print('bincount: ', np.bincount(
+        #     self.num_classes * a[k].astype(int) + b[k], minlength=self.num_classes ** 2
+        # ).shape)
         return np.bincount(
             self.num_classes * a[k].astype(int) + b[k], minlength=self.num_classes ** 2
         ).reshape(self.num_classes, self.num_classes)
@@ -74,12 +83,14 @@ class SemSegEvaluator(object):
     def evaluate(self):
         self._logger.info('Evaluating Semantic Segmentation predictions')
         hist = np.zeros((self.num_classes, self.num_classes))
+
         for i in tqdm(self.ids, desc='Calculating IoU ..'):
             image_name = self.dataset.coco.imgs[i]['file_name'].replace(*self.name_trans)
-            if not (os.path.exists(os.path.join(self.gt_dir, image_name)) and  # noqa: W504
-                    os.path.exists(os.path.join(self.pre_dir, image_name))):
+            semseg_res = [x for x in self.preds if image_name.replace('png', 'jpg') in x]
+            if len(semseg_res) == 0:
                 continue
-            pre_png = cv2.imread(os.path.join(self.pre_dir, image_name), 0)
+
+            pre_png = semseg_res[0][image_name.replace('png', 'jpg')]
             gt_png = self.generate_gt_png(i, image_name, pre_png.shape)
 
             assert gt_png.shape == pre_png.shape, '{} VS {}'.format(str(gt_png.shape), str(pre_png.shape))

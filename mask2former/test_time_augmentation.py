@@ -265,9 +265,8 @@ class ParsingSemanticSegmentorWithTTA(nn.Module):
 
         final_predictions = final_predictions / count_predictions
 
-        # cv2.imwrite('/home/user/Program/vis/m2f-cihp/Mask2Former/summed_pred_{}.png'.format(image_name),
-        #             final_predictions.argmax(dim=0).cpu().numpy() * 15)
         return {"sem_seg": final_predictions}
+
 
     def _get_augmented_inputs(self, input):
         augmented_inputs = self.tta_mapper(input)

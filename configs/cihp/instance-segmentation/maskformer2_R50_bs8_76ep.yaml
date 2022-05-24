@@ -45,6 +45,8 @@ MODEL:
       PARSING_ON: False
       INSTANCE_TO_SEMANTIC: True
       PARSING_INS_SCORE_THR: 0.3
+DATASETS:
+  TEST: ("cihp_semseg_val",)
 SOLVER:
   IMS_PER_BATCH: 8  # 16
   BASE_LR: 0.00005 # 0.0001
@@ -55,7 +57,7 @@ INPUT:
 TEST:
   EVAL_PERIOD: 20000
   AUG:
-    ENABLED: False
+    ENABLED: True
     MIN_SIZES: (640,)
     MAX_SIZE: 1400
     FLIP: True

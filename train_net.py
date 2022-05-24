@@ -306,8 +306,8 @@ class Trainer(DefaultTrainer):
         logger = logging.getLogger("detectron2.trainer")
         # In the end of training, run an evaluation with TTA.
         logger.info("Running inference with test-time augmentation ...")
-        if 'cihp' in cfg.DATASETS.TEST[0] or 'lip' in cfg.DATASETS.TEST[0]:
-            logger.info("\n\n===========\nUsing ParsingSemanticSegmentorWithTTA\n===========\n\n")
+        if cfg.MODEL.MASK_FORMER.TEST.PARSING_ON:
+            logger.info("\n\n===========\nUsing ParsingSemanticSegmentorWithTTA\n==========\n\n")
             model = ParsingSemanticSegmentorWithTTA(cfg, model)
         else:
             model = SemanticSegmentorWithTTA(cfg, model)
@@ -347,8 +347,8 @@ def main(args):
         DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
             cfg.MODEL.WEIGHTS, resume=args.resume
         )
-        # res = Trainer.test(cfg, model)
-        res = {}
+        res = Trainer.test(cfg, model)
+        # res = {}
         if cfg.TEST.AUG.ENABLED:
             res.update(Trainer.test_with_TTA(cfg, model))
         if comm.is_main_process():
@@ -368,6 +368,6 @@ if __name__ == "__main__":
         args.num_gpus,
         num_machines=args.num_machines,
         machine_rank=args.machine_rank,
-        dist_url='tcp://127.0.0.1:50500', # args.dist_url,
+        dist_url=args.dist_url,
         args=(args,),
     )
