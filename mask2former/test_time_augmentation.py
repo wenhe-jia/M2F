@@ -100,7 +100,8 @@ class ParsingSemanticSegmentorWithTTA(nn.Module):
                         final_predictions += self.model([input])[0].pop("sem_seg")
 
         final_predictions = final_predictions / count_predictions
-        return {"sem_seg": final_predictions}
+        # return {"sem_seg": final_predictions}
+        return {"sem_seg": final_predictions.cpu().numpy()}
 
     def _get_augmented_inputs(self, input):
         augmented_inputs = self.tta_mapper(input)
