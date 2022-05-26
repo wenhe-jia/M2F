@@ -1,3 +1,4 @@
+import copy
 import logging
 import numpy as np
 from typing import List, Union
@@ -17,9 +18,10 @@ from detectron2.structures import (
 )
 from detectron2.data import transforms as T
 from detectron2.data import MetadataCatalog
-
+from fvcore.transforms.transform import CropTransform
 from pycocotools import mask as maskUtils
-import random, cv2
+import random, cv2, copy
+from .transforms.transform import PadTransform
 
 __all__ = [
     "get_parsing_flip_map",
@@ -52,7 +54,7 @@ def flip_parsing_semantic_category(img, gt, flip_map, prob):
 
 
 def transform_parsing_instance_annotations(
-    annotation, transforms, image_size, *, parsing_flip_map=None
+    annotation, transforms, image_size, *, parsing_flip_map=None, multi_person_parsing=True, train_size=None
 ):
     """
     Apply transforms to box and segmentation of a single human part instance.
@@ -85,7 +87,6 @@ def transform_parsing_instance_annotations(
     annotation["bbox_mode"] = BoxMode.XYXY_ABS
 
     if "segmentation" in annotation:
-        # each instance contains 1 or more polygons
         segm = annotation["segmentation"]
 
         if isinstance(segm, list):
@@ -108,7 +109,7 @@ def transform_parsing_instance_annotations(
 
             # change part label if do h_flip
             annotation["category_id"] = flip_parsing_instance_category(
-                annotation["category_id"], transforms, cihp_flip_map
+                annotation["category_id"], transforms, parsing_flip_map
             )
         else:
             raise ValueError(
@@ -260,3 +261,64 @@ def center_to_target_size(img, gt, target_size):
         new_gt[range_new_h[0]:range_new_h[1], range_new_w[0]:range_new_w[1]] = gt
 
     return new_image, new_gt
+
+
+def center_to_target_size_instance(img, annos, target_size):
+    """
+    Use detectron2.data.transforms.ExtentTransform and fvcore.transforms.transform.CropTransform to
+    adapt the image and instance annos(bbox and polygon) to target output size.
+    """
+    src_h, src_w = img.shape[0], img.shape[1]
+    trg_h, trg_w = target_size[1], target_size[0]
+    print('\n\n======\nbefore transform, src(h,w): ', src_h, src_w, 'trg(h, w): ',  trg_h, trg_w)
+    tfm_list = []
+    if src_h > trg_h and src_w > trg_w:
+        crop_w = int((src_h - trg_h) / 2)
+        crop_h = int((src_h - trg_h) / 2)
+        tfm_list.append(CropTransform(crop_w, crop_h, trg_w, trg_h))
+
+    elif src_h > trg_h and src_w <= trg_w:
+        crop_h = int((src_h - trg_h) / 2)
+        tfm_list.append(CropTransform(0, crop_h, src_w, trg_h))
+        tfm_list.append(PadTransform(trg_h, src_w, trg_h, trg_w))
+
+    elif src_h <= trg_h and src_w > trg_w:
+        crop_w = int((src_w - trg_w) / 2)
+        tfm_list.append(CropTransform(crop_w, 0, trg_w, src_h))
+        tfm_list.append(PadTransform(src_h, trg_w, trg_h, trg_w))
+
+    else:
+        tfm_list.append(PadTransform(src_h, src_w, trg_h, trg_w))
+
+    print('\ntfms: ', tfm_list)
+
+    new_img = copy.deepcopy(img)
+    for tfm in tfm_list:
+        new_img = tfm.apply_image(new_img)
+        print(tfm, ': ', new_img.shape)
+
+    for anno in annos:
+        if "segmentation" in anno:
+            segm = anno["segmentation"]
+            if isinstance(segm, list):
+                # polygons
+                polygons = [np.asarray(p).reshape(-1, 2) for p in segm]
+                for tfm in tfm_list:
+                    polygons = tfm.apply_polygons(polygons)
+                anno['segmentation'] = [p.reshape(-1) for p in polygons]
+            elif isinstance(segm, dict):
+                # RLE
+                mask = mask_util.decode(segm)
+                for tfm in tfm_list:
+                    mask = tfm.apply_segmentation(mask)
+                assert tuple(mask.shape[:2]) == image_size
+                anno["segmentation"] = mask
+            else:
+                raise ValueError(
+                    "Cannot transform segmentation of type '{}'!"
+                    "Supported types are: polygons as list[list[float] or ndarray],"
+                    " COCO-style RLE as a dict.".format(type(segm))
+                )
+
+    return new_img, annos
+

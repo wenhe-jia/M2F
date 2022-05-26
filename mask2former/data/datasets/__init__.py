@@ -11,4 +11,5 @@ from . import (
     register_cihp_instance,
     register_cihp_instance_united,
     register_lip_semseg,
+    register_lip_instance,
 )

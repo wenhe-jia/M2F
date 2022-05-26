@@ -40,6 +40,7 @@ class MaskFormerParsingSemanticDatasetMapper:
         is_train=True,
         *,
         multi_person_parsing,
+        train_size,
         augmentations,
         image_format,
         ignore_label,
@@ -68,21 +69,19 @@ class MaskFormerParsingSemanticDatasetMapper:
         logger.info(f"[{self.__class__.__name__}] Augmentations used in {mode}: {augmentations}")
 
         self.hflip_prob = 0.5
-
-        if not self.multi_person_parsing:
-            self.train_size = [384, 512]  # w, h
+        self.train_size = train_size  # w, h, when multi person parsing, train_size = None
 
     @classmethod
     def from_config(cls, cfg, is_train=True):
         # decide whether to parse multi person
         multi_person_parsing = True
+        train_size = None
 
         # Build augmentation
         if "lip" in cfg.DATASETS.TRAIN[0]:  # for single person human parsing, e.g. LIP and ATR
             multi_person_parsing = False
 
             train_size = cfg.INPUT.SINGLE_PARSING.SCALES[0]
-            aspect_ratio = train_size[0] * 1.0 / train_size[1]
             scale_factor = cfg.INPUT.SINGLE_PARSING.SCALE_FACTOR
 
             augs = [
@@ -91,9 +90,9 @@ class MaskFormerParsingSemanticDatasetMapper:
             ]
 
             if cfg.INPUT.SINGLE_PARSING.ROTATION:
-                rot_range = cfg.INPUT.SINGLE_PARSING.ROT_FACTOR
+                rot_factor = cfg.INPUT.SINGLE_PARSING.ROT_FACTOR
                 augs.append(
-                    RandomCenterRotation(rot_range)
+                    RandomCenterRotation(rot_factor)
                 )
         else:  # for multi person human parsing, e.g. CIHP and MHP
             augs = [
@@ -122,6 +121,7 @@ class MaskFormerParsingSemanticDatasetMapper:
         ret = {
             "is_train": is_train,
             "multi_person_parsing": multi_person_parsing,
+            "train_size": train_size,
             "augmentations": augs,
             "image_format": cfg.INPUT.FORMAT,
             "ignore_label": meta.ignore_label,
@@ -145,7 +145,7 @@ class MaskFormerParsingSemanticDatasetMapper:
         utils.check_image_size(dataset_dict, image)
 
         # image_name = dataset_dict["file_name"].split('/')[-1].split('.')[0]
-        # save_dir = '/home/user/Program/vis/m2f-cihp/Mask2Former/check-lip/train/train_'+image_name+'/'
+        # save_dir = '/home/user/Program/vis/m2f-parsing/Mask2Former/check-lip/train/train_'+image_name+'/'
         # os.makedirs(save_dir)
 
         if "sem_seg_file_name" in dataset_dict:
@@ -180,8 +180,8 @@ class MaskFormerParsingSemanticDatasetMapper:
             sem_seg_gt = aug_input.sem_seg
 
             # TODO: pad the scaled and rotated image and gt to train size
-            # image, sem_seg_gt = center_to_target_size(image, sem_seg_gt, self.train_size)
-            image, sem_seg_gt = affine_to_target_size(image, sem_seg_gt, self.train_size)
+            image, sem_seg_gt = center_to_target_size(image, sem_seg_gt, self.train_size)
+            # image, sem_seg_gt = affine_to_target_size(image, sem_seg_gt, self.train_size)
 
         # Pad image and segmentation label here!
         image = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))

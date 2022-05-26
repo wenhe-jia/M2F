@@ -21,7 +21,7 @@ from ..parsing_utils import flip_parsing_semantic_category, center_to_target_siz
 This file contains the default mapping that's applied to "dataset dicts".
 """
 
-__all__ = ["MaskFormerSingleParsingTestDatasetMapper"]
+__all__ = ["MaskFormerSingleParsingSemanticTestDatasetMapper"]
 
 
 def build_augmentation(cfg):
@@ -32,7 +32,7 @@ def build_augmentation(cfg):
     return []
 
 
-class MaskFormerSingleParsingTestDatasetMapper:
+class MaskFormerSingleParsingSemanticTestDatasetMapper:
     """
     A callable which takes a dataset dict in Detectron2 Dataset format,
     and map it into a format used by the model.
@@ -135,11 +135,11 @@ class MaskFormerSingleParsingTestDatasetMapper:
         aug_input = T.AugInput(image, sem_seg=sem_seg_gt)
         aug_input, transforms = T.apply_transform_gens(self.tfm_gens, aug_input)
         image, sem_seg_gt = aug_input.image, aug_input.sem_seg
-        # image, sem_seg_gt = center_to_target_size(image, sem_seg_gt, self.test_size)
-        image, sem_seg_gt = affine_to_target_size(image, sem_seg_gt, self.test_size)
+        image, sem_seg_gt = center_to_target_size(image, sem_seg_gt, self.test_size)
+        # image, sem_seg_gt = affine_to_target_size(image, sem_seg_gt, self.test_size)
 
         # image_name = dataset_dict["file_name"].split('/')[-1].split('.')[0]
-        # save_dir = '/home/user/Program/vis/m2f-cihp/Mask2Former/check-lip/test/test_' + image_name + '/'
+        # save_dir = '/home/user/Program/vis/m2f-parsing/Mask2Former/check-lip/test/test_' + image_name + '/'
         # os.makedirs(save_dir)
 
         # cv2.imwrite(save_dir + 'image.jpg', image)

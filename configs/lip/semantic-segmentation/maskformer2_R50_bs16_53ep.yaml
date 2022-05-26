@@ -60,7 +60,7 @@ INPUT:
 TEST:
   EVAL_PERIOD: 25000
   AUG:
-    ENABLED: True
+    ENABLED: False
     MIN_SIZES: [ 384 ]
     MAX_SIZE: 3584
     FLIP: True

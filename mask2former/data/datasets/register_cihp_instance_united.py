@@ -41,7 +41,7 @@ def _get_cihp_united_instances_meta():
     ret = {
         "thing_dataset_id_to_contiguous_id": thing_dataset_id_to_contiguous_id,
         "thing_classes": thing_classes,
-        "parsing_flip_map": CIHP_UNITED_FLIP_MAP,
+        "flip_map": CIHP_UNITED_FLIP_MAP,
     }
     return ret
 

@@ -244,27 +244,32 @@ class ParsingSemanticSegmentorWithTTA(nn.Module):
                 if final_predictions is None:
                     if any(isinstance(t, HFlipTransform) for t in tfm.transforms):
                         flipped_predictions = self.model([input])[0].pop("sem_seg")
-                        # if self.insseg_to_semseg:
+                        # flipped_predictions = self.model([input])[0].pop("parsing")['semseg_outputs']  #
                         final_predictions = self.flip_parsing_back(flipped_predictions)
-                        # else:
-                        #     final_predictions = flipped_predictions.flip(dims=[2])
+
                     else:
-                        # cv2.imwrite('/home/user/Program/vis/m2f-cihp/Mask2Former/im.jpg', input['image'].cpu().numpy().transpose(1,2,0))
                         final_predictions = self.model([input])[0].pop("sem_seg")
-                        # cv2.imwrite('/home/user/Program/vis/m2f-cihp/Mask2Former/org_pred_{}.png'.format(image_name), final_predictions.argmax(dim=0).cpu().numpy()* 15)
+                        # final_predictions = self.model([input])[0].pop("parsing")['semseg_outputs']  #
                 else:
                     if any(isinstance(t, HFlipTransform) for t in tfm.transforms):
-                        # cv2.imwrite('/home/user/Program/vis/m2f-cihp/Mask2Former/im_flip.jpg', input['image'].cpu().numpy().transpose(1,2,0))
                         flipped_predictions = self.model([input])[0].pop("sem_seg")
-                        # if self.insseg_to_semseg:
+                        # flipped_predictions = self.model([input])[0].pop("parsing")['semseg_outputs']  #
                         final_predictions += self.flip_parsing_back(flipped_predictions)
-                        # else:
-                        #     final_predictions += flipped_predictions.flip(dims=[2])
                     else:
                         final_predictions += self.model([input])[0].pop("sem_seg")
+                        # final_predictions += self.model([input])[0].pop("parisng")['semseg_outputs']
 
         final_predictions = final_predictions / count_predictions
 
+
+        # return {
+        #     "parsing": {
+        #         "semseg_outputs": final_predictions.argmax(dim=0).cpu().numpy(),
+        #         "parsing_outputs": [],
+        #         "part_outputs": [],
+        #         "human_outputs": []
+        #     }
+        # }
         return {"sem_seg": final_predictions}
 
 
@@ -279,10 +284,6 @@ class ParsingSemanticSegmentorWithTTA(nn.Module):
 
         # channel transaction to flip human part label
         for ori_label, new_label in self.flip_map:
-            if self.insseg_to_semseg:
-                ori_label += 1
-                new_label += 1
-
             org_channel = spatial_flipback_predictions[ori_label, :, :]
             new_channel = spatial_flipback_predictions[new_label, :, :]
 

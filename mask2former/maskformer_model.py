@@ -50,7 +50,8 @@ class MaskFormer(nn.Module):
         test_topk_per_image: int,
         # evaluate parsing semseg metrics(mIoU) with insseg model
         parsing_on: bool,
-        insseg_to_semseg: bool,
+        instance_to_semantic: bool,
+        parsing_with_human: bool,
         parsing_ins_score_thr: float,
         iop_thresh: float,
         multi_person_parsing: bool
@@ -102,7 +103,8 @@ class MaskFormer(nn.Module):
         self.test_topk_per_image = test_topk_per_image
         # evaluate parsing
         self.parsing_on = parsing_on
-        self.insseg_to_semseg = insseg_to_semseg
+        self.instance_to_semantic = instance_to_semantic
+        self.parsing_with_human = parsing_with_human
         self.parsing_ins_score_thr = parsing_ins_score_thr
         self.iop_thresh = iop_thresh
         self.multi_person_parsing = multi_person_parsing
@@ -154,6 +156,16 @@ class MaskFormer(nn.Module):
             importance_sample_ratio=cfg.MODEL.MASK_FORMER.IMPORTANCE_SAMPLE_RATIO,
         )
 
+        if "cihp" in cfg.DATASETS.TEST[0]:
+            parsing_on = True
+            multi_person_parsing = True
+        elif "lip" in cfg.DATASETS.TEST[0]:
+            parsing_on = True
+            multi_person_parsing = False
+        else:
+            parsing_on = False
+            multi_person_parsing = True
+
         return {
             "backbone": backbone,
             "sem_seg_head": sem_seg_head,
@@ -175,12 +187,13 @@ class MaskFormer(nn.Module):
             "instance_on": cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON,
             "panoptic_on": cfg.MODEL.MASK_FORMER.TEST.PANOPTIC_ON,
             "test_topk_per_image": cfg.TEST.DETECTIONS_PER_IMAGE,
-            # evaluate parsing semseg metrics(mIoU) with insseg model
-            "parsing_on": cfg.MODEL.MASK_FORMER.TEST.PARSING_ON,
-            "insseg_to_semseg": cfg.MODEL.MASK_FORMER.TEST.INSSEG_TO_SEMSEG,
-            "parsing_ins_score_thr": cfg.MODEL.MASK_FORMER.TEST.PARSING_INS_SCORE_THR,
-            "iop_thresh": cfg.MODEL.MASK_FORMER.TEST.IOP_THR,
-            "multi_person_parsing": cfg.MODEL.MASK_FORMER.MULTI_PERSON_PARSING,
+            # parsing
+            "parsing_on": parsing_on,
+            "instance_to_semantic": cfg.MODEL.MASK_FORMER.TEST.PARSING.INSTANCE_TO_SEMANTIC,
+            "parsing_with_human": cfg.MODEL.MASK_FORMER.TEST.PARSING.PARSING_WITH_HUMAN,
+            "parsing_ins_score_thr": cfg.MODEL.MASK_FORMER.TEST.PARSING.PARSING_INS_SCORE_THR,
+            "iop_thresh": cfg.MODEL.MASK_FORMER.TEST.PARSING.IOP_THR,
+            "multi_person_parsing": multi_person_parsing,
         }
 
     @property
@@ -259,48 +272,54 @@ class MaskFormer(nn.Module):
                 width = input_per_image.get("width", image_size[1])
                 processed_results.append({}) # for each image
 
-                if self.parsing_on:
-                    # evaluate parsing semseg metrics(mIoU) with insseg model
-                    mask_pred_result = retry_if_cuda_oom(sem_seg_postprocess)(
-                        mask_pred_result, image_size, height, width
-                    )
-                    mask_cls_result = mask_cls_result.to(mask_pred_result)  # change device as mask_pred_result
-
-                    r = retry_if_cuda_oom(self.parsing_inference)(mask_cls_result, mask_pred_result)
-                    processed_results[-1]["parsing"] = r
-                    # r = retry_if_cuda_oom(self.semseg_inference_for_insseg_model)(mask_cls_result, mask_pred_result)
-                    # processed_results[-1]["sem_seg"] = r
-                else:
-                    if self.sem_seg_postprocess_before_inference:
+                if self.sem_seg_postprocess_before_inference:
+                    """
+                    TOD: maybe add single parsing postprocess
+                    """
+                    if not self.parsing_on:
                         mask_pred_result = retry_if_cuda_oom(sem_seg_postprocess)(
                             mask_pred_result, image_size, height, width
                         )
-                        mask_cls_result = mask_cls_result.to(mask_pred_result)  # change device as mask_pred_result
+                    elif self.parsing_on and self.multi_person_parsing:
+                        mask_pred_result = retry_if_cuda_oom(sem_seg_postprocess)(
+                            mask_pred_result, image_size, height, width
+                        )
+                    elif self.parsing_on and not self.multi_person_parsing:
+                        print("\n\n===========\nUsing single_parsing_sem_seg_postprocess\n===========\n\n")
+                        mask_pred_result = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(
+                            mask_pred_result, image_size, height, width
+                        )
+                    mask_cls_result = mask_cls_result.to(mask_pred_result)  # change device as mask_pred_result
 
-                    # semantic segmentation inference
-                    if self.semantic_on:
-                        r = retry_if_cuda_oom(self.semantic_inference)(mask_cls_result, mask_pred_result)  # (C, H, W)
-                        if not self.sem_seg_postprocess_before_inference:
-                            if self.multi_person_parsing:
-                                r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height, width)  # (C, H_org, W_org)
-                            else:
-                                # print("\n\n===========\nUsing single_parsing_sem_seg_postprocess\n===========\n\n")
-                                r = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(r, image_size, height, width)
-                        processed_results[-1]["sem_seg"] = r
-                        
-                    # panoptic segmentation inference
-                    if self.panoptic_on:
-                        panoptic_r = retry_if_cuda_oom(self.panoptic_inference)(mask_cls_result, mask_pred_result)
-                        processed_results[-1]["panoptic_seg"] = panoptic_r
+                # semantic segmentation inference
+                if self.semantic_on:
+                    r = retry_if_cuda_oom(self.semantic_inference)(mask_cls_result, mask_pred_result)
+                    if not self.sem_seg_postprocess_before_inference:
+                        if not self.parsing_on:
+                            r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height,width)
+                        elif self.parsing_on and self.multi_person_parsing:
+                            r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height, width)
+                        elif self.parsing_on and not self.multi_person_parsing:
+                            print("\n\n===========\nUsing single_parsing_sem_seg_postprocess\n===========\n\n")
+                            r = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(r, image_size, height, width)
+                    processed_results[-1]["sem_seg"] = r
 
-                    # instance segmentation inference
-                    if self.instance_on:
-                        if self.insseg_to_semseg:
-                            semantic_r = retry_if_cuda_oom(self.semseg_inference_for_insseg_model)(mask_cls_result, mask_pred_result)
-                            processed_results[-1]["sem_seg"] = semantic_r
-                        else:
-                            instance_r = retry_if_cuda_oom(self.instance_inference)(mask_cls_result, mask_pred_result)
-                            processed_results[-1]["instances"] = instance_r  # compiled in "Instances" structure
+                # panoptic segmentation inference
+                if self.panoptic_on:
+                    panoptic_r = retry_if_cuda_oom(self.panoptic_inference)(mask_cls_result, mask_pred_result)
+                    processed_results[-1]["panoptic_seg"] = panoptic_r
+
+                # instance segmentation inference
+                if self.instance_on:
+                    if not self.parsing_on:
+                        instance_r = retry_if_cuda_oom(self.instance_inference)(mask_cls_result, mask_pred_result)
+                        processed_results[-1]["instances"] = instance_r  # compiled in "Instances" structure
+                    if self.parsing_on and self.instance_to_semantic:
+                        semantic_r = retry_if_cuda_oom(self.semantic_inference_for_instance_model)(mask_cls_result, mask_pred_result)
+                        processed_results[-1]["sem_seg"] = semantic_r
+                    elif self.parsing_on and not self.insseg_to_semseg and self.parsing_with_human:
+                        parsing_r = retry_if_cuda_oom(self.parsing_inference)(mask_cls_result, mask_pred_result)
+                        processed_results[-1]["parsing"] = parsing_r
 
             return processed_results
 
@@ -435,7 +454,7 @@ class MaskFormer(nn.Module):
         result.pred_classes = labels_per_image
         return result
 
-    def semseg_inference_for_insseg_model(self, mask_cls, mask_pred):
+    def semantic_inference_for_instance_model(self, mask_cls, mask_pred):
         # mask_cls(Q, C)
         # mask_pred(Q, H, W) is already processed to have the same shape as original input by func "sem_seg_postprocess"
 
@@ -528,6 +547,8 @@ class MaskFormer(nn.Module):
             #     semseg_im.append(semseg_cate)
 
             semseg_im.append(semseg_cate)
+
+        # semseg_mask = torch.stack(semseg_im, dim=0)  #
         semseg_mask = torch.stack(semseg_im, dim=0).argmax(dim=0).cpu().numpy()
         return semseg_mask
 

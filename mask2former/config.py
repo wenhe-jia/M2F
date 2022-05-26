@@ -29,9 +29,6 @@ def add_maskformer2_config(cfg):
     # mask_former model config
     cfg.MODEL.MASK_FORMER = CN()
 
-    # for multi person and single person parsing, difference usually are data aug and eval
-    cfg.MODEL.MASK_FORMER.MULTI_PERSON_PARSING = True
-
     # loss
     cfg.MODEL.MASK_FORMER.DEEP_SUPERVISION = True
     cfg.MODEL.MASK_FORMER.NO_OBJECT_WEIGHT = 0.1
@@ -63,11 +60,12 @@ def add_maskformer2_config(cfg):
     cfg.MODEL.MASK_FORMER.TEST.SEM_SEG_POSTPROCESSING_BEFORE_INFERENCE = False
     
     ###### for parsing template ######
-    cfg.MODEL.MASK_FORMER.TEST.PARSING_ON = False
-    cfg.MODEL.MASK_FORMER.TEST.INSSEG_TO_SEMSEG = False
-    cfg.MODEL.MASK_FORMER.TEST.PARSING_INS_SCORE_THR = 0.5
-    cfg.MODEL.MASK_FORMER.TEST.PIXEL_SCORE_TH = 0.25
-    cfg.MODEL.MASK_FORMER.TEST.IOP_THR = 0.5
+    cfg.MODEL.MASK_FORMER.TEST.PARSING = CN()
+    cfg.MODEL.MASK_FORMER.TEST.PARSING.PARSING_WITH_HUMAN = False
+    cfg.MODEL.MASK_FORMER.TEST.PARSING.INSTANCE_TO_SEMANTIC = False
+    cfg.MODEL.MASK_FORMER.TEST.PARSING.PARSING_INS_SCORE_THR = 0.5
+    cfg.MODEL.MASK_FORMER.TEST.PARSING.PIXEL_SCORE_TH = 0.25
+    cfg.MODEL.MASK_FORMER.TEST.PARSING.IOP_THR = 0.5
     
     # Sometimes `backbone.size_divisibility` is set to 0 for some backbone (e.g. ResNet)
     # you can use this config to override

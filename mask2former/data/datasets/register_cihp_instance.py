@@ -23,7 +23,7 @@ CIHP_INSSEG_CATEGORIES = [
     {'id': 18, 'name': 'Left-shoe'}, {'id': 19, 'name': 'Right-shoe'},
 ]
 
-CIHP_FLIP_MAP = ((13, 14), (15, 16), (17, 18))
+CIHP_FLIP_MAP = ((14, 15), (16, 17), (18, 19))
 
 
 _PREDEFINED_SPLITS = {
@@ -41,7 +41,7 @@ def _get_cihp_instances_meta():
     ret = {
         "thing_dataset_id_to_contiguous_id": thing_dataset_id_to_contiguous_id,
         "thing_classes": thing_classes,
-        "parsing_flip_map": CIHP_FLIP_MAP,
+        "flip_map": CIHP_FLIP_MAP,
     }
     return ret
 

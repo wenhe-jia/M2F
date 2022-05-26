@@ -9,6 +9,16 @@ MODEL:
     OUT_FEATURES: ["res2", "res3", "res4", "res5"]
     # NORM: "SyncBN"
     RES5_MULTI_GRID: [1, 1, 1]  # not used
+  MASK_FORMER:
+    TEST:
+      SEMANTIC_ON: False
+      INSTANCE_ON: True
+      PANOPTIC_ON: False
+      OVERLAP_THRESHOLD: 0.8
+      OBJECT_MASK_THRESHOLD: 0.8
+      PARSING_ON: True
+      PARSING_INS_SCORE_THR: 0.3
+      IOP_THR: 0.6
 SOLVER:
   IMS_PER_BATCH: 8  # 16
   BASE_LR: 0.0002 # 0.0001, normalized zoom to 0.00005 with batch_size 8
@@ -23,5 +33,3 @@ TEST:
     MIN_SIZES: (640,)
     MAX_SIZE: 1400
     FLIP: True
-DATASETS:
-  TEST: ("cihp_semseg_val",)

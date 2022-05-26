@@ -26,6 +26,7 @@ except ImportError:
 
 __all__ = [
     "RotationTransform",
+    "PadTransform",
 ]
 
 
@@ -115,3 +116,50 @@ class RotationTransform(Transform):
             (rotation.bound_w - self.w) // 2, (rotation.bound_h - self.h) // 2, self.w, self.h
         )
         return TransformList([rotation, crop])
+
+
+class PadTransform(Transform):
+    def __init__(self, src_h, src_w, trg_h, trg_w):
+        super().__init__()
+        assert src_h <= trg_h, "expect src_h <= trg_h"
+        assert src_w <= trg_w, "expect src_w <= trg_w"
+
+        pad_w = int((trg_w - src_w) / 2)
+        pad_h = int((trg_h - src_h) / 2)
+
+        self._set_attributes(locals())
+
+    def apply_image(self, img, pad_value=128):
+        # print('\npad(h,w): ', self.pad_h, self.pad_w)
+        if self.pad_h ==0 and self.pad_w == 0:
+            return img
+
+        if len(img.shape) == 2:
+            return np.pad(
+                img,
+                ((self.pad_h, self.pad_h), (self.pad_w, self.pad_w)),
+                "constant",
+                constant_values=((pad_value, pad_value), (pad_value, pad_value))
+            )
+        elif len(img.shape) == 3:
+            return np.pad(
+                img,
+                ((self.pad_h, self.pad_h), (self.pad_w, self.pad_w), (0, 0)),
+                "constant",
+                constant_values=((pad_value, pad_value), (pad_value, pad_value), (pad_value, pad_value))
+            )
+
+    def apply_coords(self, coords):
+        coords = np.asarray(coords, dtype=float)
+        if len(coords) == 0:
+            return coords
+        if self.pad_h == 0 and self.pad_w == 0:
+            return coords
+
+        coords[:, 0] += self.pad_w
+        coords[:, 1] += self.pad_h
+        return coords
+
+    def apply_segmentation(self, segmentation, pad_value=255):
+        segmentation = self.apply_image(segmentation, pad_value=pad_value)
+        return segmentation

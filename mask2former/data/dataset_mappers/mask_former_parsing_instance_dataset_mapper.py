@@ -13,7 +13,9 @@ from detectron2.data import transforms as T
 from detectron2.projects.point_rend import ColorAugSSDTransform
 from detectron2.structures import BitMasks, Instances, polygons_to_bitmask
 
-from ..parsing_utils import get_parsing_flip_map, transform_parsing_instance_annotations
+from ..parsing_utils import get_parsing_flip_map, transform_parsing_instance_annotations,\
+    flip_parsing_semantic_category, center_to_target_size, affine_to_target_size, center_to_target_size_instance
+from ..transforms.augmentation_impl import ResizeByAspectRatio, ResizeByScale, RandomCenterRotation
 
 __all__ = ["MaskFormerParsingInstanceDatasetMapper"]
 
@@ -36,6 +38,8 @@ class MaskFormerParsingInstanceDatasetMapper:
         self,
         is_train=True,
         *,
+        multi_person_parsing,
+        train_size,
         augmentations,
         image_format,
         size_divisibility,
@@ -50,6 +54,7 @@ class MaskFormerParsingInstanceDatasetMapper:
             size_divisibility: pad image size to be divisible by this value
         """
         self.is_train = is_train
+        self.multi_person_parsing = multi_person_parsing
         self.tfm_gens = augmentations
         self.img_format = image_format
         self.size_divisibility = size_divisibility
@@ -59,22 +64,48 @@ class MaskFormerParsingInstanceDatasetMapper:
         mode = "training" if is_train else "inference"
         logger.info(f"[{self.__class__.__name__}] Augmentations used in {mode}: {augmentations}")
 
+        self.train_size = train_size  # w, h, when multi person parsing, train_size = None
+
     @classmethod
     def from_config(cls, cfg, is_train=True):
+        # decide whether to parse multi person
+        multi_person_parsing = True
+        train_size = None
+
         # Build augmentation
-        augs = [
-            T.ResizeShortestEdge(
-                cfg.INPUT.MIN_SIZE_TRAIN,
-                cfg.INPUT.MAX_SIZE_TRAIN,
-                cfg.INPUT.MIN_SIZE_TRAIN_SAMPLING,
-            )
-        ]
-        if cfg.INPUT.COLOR_AUG_SSD:
-            augs.append(ColorAugSSDTransform(img_format=cfg.INPUT.FORMAT))
-        augs.append(T.RandomFlip())
+        if "lip" in cfg.DATASETS.TRAIN[0]:  # for single person human parsing, e.g. LIP and ATR
+            multi_person_parsing = False
+
+            train_size = cfg.INPUT.SINGLE_PARSING.SCALES[0]
+            scale_factor = cfg.INPUT.SINGLE_PARSING.SCALE_FACTOR
+
+            augs = [
+                # ResizeByAspectRatio(aspect_ratio, interp=Image.NEAREST),
+                T.RandomFlip(),
+                ResizeByScale(scale_factor)
+            ]
+
+            if cfg.INPUT.SINGLE_PARSING.ROTATION:
+                rot_factor = cfg.INPUT.SINGLE_PARSING.ROT_FACTOR
+                augs.append(
+                    RandomCenterRotation(rot_factor)
+                )
+        else:
+            augs = [
+                T.ResizeShortestEdge(
+                    cfg.INPUT.MIN_SIZE_TRAIN,
+                    cfg.INPUT.MAX_SIZE_TRAIN,
+                    cfg.INPUT.MIN_SIZE_TRAIN_SAMPLING,
+                )
+            ]
+            if cfg.INPUT.COLOR_AUG_SSD:
+                augs.append(ColorAugSSDTransform(img_format=cfg.INPUT.FORMAT))
+            augs.append(T.RandomFlip())
 
         ret = {
             "is_train": is_train,
+            "multi_person_parsing": multi_person_parsing,
+            "train_size": train_size,
             "augmentations": augs,
             "image_format": cfg.INPUT.FORMAT,
             "size_divisibility": cfg.INPUT.SIZE_DIVISIBILITY,
@@ -106,10 +137,19 @@ class MaskFormerParsingInstanceDatasetMapper:
             anno.pop("keypoints", None)
 
         annos = [
-            transform_parsing_instance_annotations(obj, transforms, image.shape[:2], parsing_flip_map=self.parsing_flip_map)
+            transform_parsing_instance_annotations(
+                obj, transforms, image.shape[:2],
+                parsing_flip_map=self.parsing_flip_map,
+                multi_person_parsing=self.multi_person_parsing,
+                train_size=self.train_size
+            )
             for obj in dataset_dict.pop("annotations")
             if obj.get("iscrowd", 0) == 0
         ]
+
+
+        if not self.multi_person_parsing:
+            image, annos = center_to_target_size_instance(image, annos, self.train_size)
 
         if len(annos):
             assert "segmentation" in annos[0]

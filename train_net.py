@@ -108,7 +108,8 @@ class Trainer(DefaultTrainer):
                 )
         # instance segmentation
         if evaluator_type == "coco":
-            if cfg.MODEL.MASK_FORMER.TEST.PARSING_ON:
+            if "cihp" in cfg.DATASETS.TEST[0] or "lip" in cfg.DATASETS.TEST[0]:
+                print("\n\n===========\nUsing ParsingEvaluator\n===========\n\n")
                 evaluator_list.append(ParsingEvaluator(dataset_name, output_dir=output_folder))
             else:
                 evaluator_list.append(COCOEvaluator(dataset_name, output_dir=output_folder))
@@ -293,11 +294,9 @@ class Trainer(DefaultTrainer):
     @classmethod
     def build_test_loader(cls, cfg, dataset_name):
         """
-        Returns:
-            iterable
-
         It now calls :func:`detectron2.data.build_detection_test_loader`.
-        Overwrite it if you'd like a different data loader.
+        Overwrite func:`detectron2.data.build_detection_test_loader`,
+        to adapt the single parsing test loader for lip and ATR, etc.
         """
         return build_detection_test_loader(cfg, dataset_name)
 
@@ -306,7 +305,7 @@ class Trainer(DefaultTrainer):
         logger = logging.getLogger("detectron2.trainer")
         # In the end of training, run an evaluation with TTA.
         logger.info("Running inference with test-time augmentation ...")
-        if cfg.MODEL.MASK_FORMER.TEST.PARSING_ON:
+        if "lip" in cfg.DATASETS.TEST[0] or "cihp" in cfg.DATASETS.TEST[0]:
             logger.info("\n\n===========\nUsing ParsingSemanticSegmentorWithTTA\n==========\n\n")
             model = ParsingSemanticSegmentorWithTTA(cfg, model)
         else:

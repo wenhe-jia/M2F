@@ -29,7 +29,8 @@ from detectron2.data.samplers import (
 )
 
 from .dataset_mappers.mask_former_parsing_semantic_dataset_mapper import MaskFormerParsingSemanticDatasetMapper
-from .dataset_mappers.mask_former_single_parsing_test_dataset_mapper import MaskFormerSingleParsingTestDatasetMapper
+from .dataset_mappers.mask_former_single_parsing_semantic_test_dataset_mapper import \
+    MaskFormerSingleParsingSemanticTestDatasetMapper
 
 """
 This file contains the default logic to build a dataloader for training or testing.
@@ -292,8 +293,9 @@ def _test_loader_from_config(cfg, dataset_name, mapper=None):
         else None,
     )
     if mapper is None:
-        if "lip" in dataset_name[0]:
-            mapper = MaskFormerSingleParsingTestDatasetMapper(cfg, False)
+        if "lip" in cfg.DATASETS.TEST[0]:
+            print('\n\n===========\nuse MaskFormerSingleParsingTestDatasetMapper\n===========\n\n')
+            mapper = MaskFormerSingleParsingSemanticTestDatasetMapper(cfg, False)
         else:
             mapper = DatasetMapper(cfg, False)
     return {
@@ -350,7 +352,6 @@ def build_detection_test_loader(
         # or, instantiate with a CfgNode:
         data_loader = build_detection_test_loader(cfg, "my_test")
     """
-    print('\n\n===========\nuse self implemented test loader\n===========\n\n')
     if isinstance(dataset, list):
         dataset = DatasetFromList(dataset, copy=False)
     if mapper is not None:
