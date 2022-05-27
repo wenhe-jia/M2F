@@ -176,7 +176,6 @@ class MaskFormerParsingSemanticDatasetMapper:
             image = aug_input.image
             sem_seg_gt = aug_input.sem_seg
 
-            # TODO: pad the scaled and rotated image and gt to train size
             image, sem_seg_gt = center_to_target_size(image, sem_seg_gt, self.train_size)
             # image, sem_seg_gt = affine_to_target_size(image, sem_seg_gt, self.train_size)
 
