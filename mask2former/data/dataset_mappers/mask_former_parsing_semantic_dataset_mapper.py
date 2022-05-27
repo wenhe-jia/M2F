@@ -78,14 +78,14 @@ class MaskFormerParsingSemanticDatasetMapper:
         train_size = None
 
         # Build augmentation
-        if "lip" in cfg.DATASETS.TRAIN[0]:  # for single person human parsing, e.g. LIP and ATR
+        if "lip" in cfg.DATASETS.TRAIN[0]:
+            # for single person human parsing, e.g. LIP and ATR
             multi_person_parsing = False
 
             train_size = cfg.INPUT.SINGLE_PARSING.SCALES[0]
             scale_factor = cfg.INPUT.SINGLE_PARSING.SCALE_FACTOR
 
             augs = [
-                # ResizeByAspectRatio(aspect_ratio, interp=Image.NEAREST),
                 ResizeByScale(scale_factor)
             ]
 
@@ -94,7 +94,8 @@ class MaskFormerParsingSemanticDatasetMapper:
                 augs.append(
                     RandomCenterRotation(rot_factor)
                 )
-        else:  # for multi person human parsing, e.g. CIHP and MHP
+        else:
+            # for multi person human parsing, e.g. CIHP and MHP
             augs = [
                 T.ResizeShortestEdge(
                     cfg.INPUT.MIN_SIZE_TRAIN,
@@ -125,7 +126,7 @@ class MaskFormerParsingSemanticDatasetMapper:
             "augmentations": augs,
             "image_format": cfg.INPUT.FORMAT,
             "ignore_label": meta.ignore_label,
-            "size_divisibility": cfg.INPUT.SIZE_DIVISIBILITY,  # 512
+            "size_divisibility": cfg.INPUT.SIZE_DIVISIBILITY,
             "parsing_flip_map": meta.flip_map
         }
         return ret
@@ -143,10 +144,6 @@ class MaskFormerParsingSemanticDatasetMapper:
         dataset_dict = copy.deepcopy(dataset_dict)  # it will be modified by code below
         image = utils.read_image(dataset_dict["file_name"], format=self.img_format)
         utils.check_image_size(dataset_dict, image)
-
-        # image_name = dataset_dict["file_name"].split('/')[-1].split('.')[0]
-        # save_dir = '/home/user/Program/vis/m2f-parsing/Mask2Former/check-lip/train/train_'+image_name+'/'
-        # os.makedirs(save_dir)
 
         if "sem_seg_file_name" in dataset_dict:
             # PyTorch transformation not implemented for uint16, so converting it to double first
@@ -199,9 +196,6 @@ class MaskFormerParsingSemanticDatasetMapper:
             image = F.pad(image, padding_size, value=128).contiguous()
             if sem_seg_gt is not None:
                 sem_seg_gt = F.pad(sem_seg_gt, padding_size, value=self.ignore_label).contiguous()
-
-        # cv2.imwrite(save_dir + 'tfmd_image_{}.jpg'.format(image_name), image.numpy().transpose(1, 2, 0))
-        # cv2.imwrite(save_dir + 'tfmd_gt_{}.png'.format(image_name), sem_seg_gt.numpy() * 15)
 
         image_shape = (image.shape[-2], image.shape[-1])  # h, w
         # Pytorch's dataloader is efficient on torch.Tensor due to shared-memory,

@@ -54,7 +54,7 @@ def flip_parsing_semantic_category(img, gt, flip_map, prob):
 
 
 def transform_parsing_instance_annotations(
-    annotation, transforms, image_size, *, parsing_flip_map=None, multi_person_parsing=True, train_size=None
+    annotation, transforms, image_size, *, parsing_flip_map=None
 ):
     """
     Apply transforms to box and segmentation of a single human part instance.
@@ -172,15 +172,15 @@ def affine_to_target_size(img, gt, target_size):
 
 
 def get_affine_transform(box, output_size, shift=np.array([0, 0], dtype=np.float32), inv=0):
-    center = np.array([box[0], box[1]], dtype=np.float32)  # (xc, yc)
-    scale = np.array([box[2], box[3]], dtype=np.float32)  # (w, h)
-    rot = box[4]  # r
+    center = np.array([box[0], box[1]], dtype=np.float32)
+    scale = np.array([box[2], box[3]], dtype=np.float32)
+    rot = box[4]
 
-    src_w = scale[0]  # w
-    dst_w = output_size[0]  # W
-    dst_h = output_size[1]  # H
+    src_w = scale[0]
+    dst_w = output_size[0]
+    dst_h = output_size[1]
 
-    rot_rad = np.pi * rot / 180  # r -> f(np.pi)
+    rot_rad = np.pi * rot / 180
     src_dir = get_dir([0, src_w * -0.5], rot_rad)
     dst_dir = np.array([0, dst_w * -0.5], np.float32)
 
@@ -219,9 +219,9 @@ def get_dir(src_point, rot_rad):
 
 def change_aspect_ratio(w, h, aspect_ratio):
     if w > aspect_ratio * h:
-        h = w * 1.0 / aspect_ratio  # enlarge h
+        h = w * 1.0 / aspect_ratio
     elif w < aspect_ratio * h:
-        w = h * aspect_ratio  # enlarge w
+        w = h * aspect_ratio
     return w, h
 
 
@@ -270,7 +270,7 @@ def center_to_target_size_instance(img, annos, target_size):
     """
     src_h, src_w = img.shape[0], img.shape[1]
     trg_h, trg_w = target_size[1], target_size[0]
-    print('\n\n======\nbefore transform, src(h,w): ', src_h, src_w, 'trg(h, w): ',  trg_h, trg_w)
+
     tfm_list = []
     if src_h > trg_h and src_w > trg_w:
         crop_w = int((src_h - trg_h) / 2)
@@ -290,12 +290,9 @@ def center_to_target_size_instance(img, annos, target_size):
     else:
         tfm_list.append(PadTransform(src_h, src_w, trg_h, trg_w))
 
-    print('\ntfms: ', tfm_list)
-
     new_img = copy.deepcopy(img)
     for tfm in tfm_list:
         new_img = tfm.apply_image(new_img)
-        print(tfm, ': ', new_img.shape)
 
     for anno in annos:
         if "segmentation" in anno:

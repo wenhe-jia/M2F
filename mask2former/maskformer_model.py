@@ -300,7 +300,6 @@ class MaskFormer(nn.Module):
                         elif self.parsing_on and self.multi_person_parsing:
                             r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height, width)
                         elif self.parsing_on and not self.multi_person_parsing:
-                            print("\n\n===========\nUsing single_parsing_sem_seg_postprocess\n===========\n\n")
                             r = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(r, image_size, height, width)
                     processed_results[-1]["sem_seg"] = r
 

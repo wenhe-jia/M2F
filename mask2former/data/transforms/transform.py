@@ -124,27 +124,28 @@ class PadTransform(Transform):
         assert src_h <= trg_h, "expect src_h <= trg_h"
         assert src_w <= trg_w, "expect src_w <= trg_w"
 
-        pad_w = int((trg_w - src_w) / 2)
-        pad_h = int((trg_h - src_h) / 2)
+        pad_left = int((trg_w - src_w) / 2)
+        pad_right = trg_w - src_w - pad_left
+        pad_top = int((trg_h - src_h) / 2)
+        pad_bottom = trg_h - src_h - pad_top
 
         self._set_attributes(locals())
 
     def apply_image(self, img, pad_value=128):
-        # print('\npad(h,w): ', self.pad_h, self.pad_w)
-        if self.pad_h ==0 and self.pad_w == 0:
+        if self.pad_left == 0 and self.pad_top == 0:
             return img
 
         if len(img.shape) == 2:
             return np.pad(
                 img,
-                ((self.pad_h, self.pad_h), (self.pad_w, self.pad_w)),
+                ((self.pad_top, self.pad_bottom), (self.pad_left, self.pad_right)),
                 "constant",
                 constant_values=((pad_value, pad_value), (pad_value, pad_value))
             )
         elif len(img.shape) == 3:
             return np.pad(
                 img,
-                ((self.pad_h, self.pad_h), (self.pad_w, self.pad_w), (0, 0)),
+                ((self.pad_top, self.pad_bottom), (self.pad_left, self.pad_right), (0, 0)),
                 "constant",
                 constant_values=((pad_value, pad_value), (pad_value, pad_value), (pad_value, pad_value))
             )
@@ -153,11 +154,11 @@ class PadTransform(Transform):
         coords = np.asarray(coords, dtype=float)
         if len(coords) == 0:
             return coords
-        if self.pad_h == 0 and self.pad_w == 0:
+        if self.pad_left == 0 and self.pad_top == 0:
             return coords
 
-        coords[:, 0] += self.pad_w
-        coords[:, 1] += self.pad_h
+        coords[:, 0] += self.pad_left
+        coords[:, 1] += self.pad_top
         return coords
 
     def apply_segmentation(self, segmentation, pad_value=255):

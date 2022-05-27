@@ -1,4 +1,4 @@
-_BASE_: Base-CIHP-UnitedInstanceSegmentation-eval_semseg.yaml
+_BASE_: Base-LIP-SemanticSegmentation.yaml
 MODEL:
   META_ARCHITECTURE: "MaskFormer"
   SEM_SEG_HEAD:
@@ -37,17 +37,32 @@ MODEL:
     OVERSAMPLE_RATIO: 3.0
     IMPORTANCE_SAMPLE_RATIO: 0.75
     TEST:
-      SEMANTIC_ON: False
-      INSTANCE_ON: True
+      SEMANTIC_ON: True
+      INSTANCE_ON: False
       PANOPTIC_ON: False
       OVERLAP_THRESHOLD: 0.8
       OBJECT_MASK_THRESHOLD: 0.8
-      PARSING_ON: True
-      PARSING_INS_SCORE_THR: 0.3
+DATASETS:
+  TRAIN: ("lip_semseg_train",)
+  TEST: ("lip_semseg_val",)
 SOLVER:
-  IMS_PER_BATCH: 16
-  BASE_LR: 0.0001
-  STEPS: (14700, 19500)
-  MAX_ITER: 44000  # 12 ep for cihp train with 28280 images
+  IMS_PER_BATCH: 128 # 16
+  BASE_LR: 0.0008  # 0.0001
+  MAX_ITER: 35000  # 280000
+INPUT:
+  DATASET_MAPPER_NAME: "mask_former_parsing_semantic"
+  SINGLE_PARSING:
+    SCALES: ([384, 512],)
+    SCALE_FACTOR: 0.3
+    ROTATION: True
+    ROT_FACTOR: 40
 TEST:
-  EVAL_PERIOD: 5000
+  EVAL_PERIOD: 10000
+  AUG:
+    ENABLED: False
+    MIN_SIZES: [ 384 ]
+    MAX_SIZE: 3584
+    FLIP: True
+DATALOADER:
+  FILTER_EMPTY_ANNOTATIONS: True
+  NUM_WORKERS: 4

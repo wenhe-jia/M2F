@@ -1,5 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
-import copy
+import copy, cv2, os
 import logging
 
 import numpy as np
@@ -80,7 +80,6 @@ class MaskFormerParsingInstanceDatasetMapper:
             scale_factor = cfg.INPUT.SINGLE_PARSING.SCALE_FACTOR
 
             augs = [
-                # ResizeByAspectRatio(aspect_ratio, interp=Image.NEAREST),
                 T.RandomFlip(),
                 ResizeByScale(scale_factor)
             ]
@@ -140,8 +139,6 @@ class MaskFormerParsingInstanceDatasetMapper:
             transform_parsing_instance_annotations(
                 obj, transforms, image.shape[:2],
                 parsing_flip_map=self.parsing_flip_map,
-                multi_person_parsing=self.multi_person_parsing,
-                train_size=self.train_size
             )
             for obj in dataset_dict.pop("annotations")
             if obj.get("iscrowd", 0) == 0
