@@ -90,7 +90,6 @@ class Trainer(DefaultTrainer):
         # semantic segmentation
         if evaluator_type in ["sem_seg", "ade20k_panoptic_seg"]:
             if "lip" in cfg.DATASETS.TEST[0]:
-                print("\n\n===========\nUsing SingleParsingSemSegEvaluator\n===========\n\n")
                 evaluator_list.append(
                     SingleParsingSemSegEvaluator(
                         dataset_name,
@@ -109,7 +108,6 @@ class Trainer(DefaultTrainer):
         # instance segmentation
         if evaluator_type == "coco":
             if "cihp" in cfg.DATASETS.TEST[0] or "lip" in cfg.DATASETS.TEST[0]:
-                print("\n\n===========\nUsing ParsingEvaluator\n===========\n\n")
                 evaluator_list.append(ParsingEvaluator(dataset_name, output_dir=output_folder))
             else:
                 evaluator_list.append(COCOEvaluator(dataset_name, output_dir=output_folder))
@@ -306,7 +304,6 @@ class Trainer(DefaultTrainer):
         # In the end of training, run an evaluation with TTA.
         logger.info("Running inference with test-time augmentation ...")
         if "lip" in cfg.DATASETS.TEST[0] or "cihp" in cfg.DATASETS.TEST[0]:
-            logger.info("\n\n===========\nUsing ParsingSemanticSegmentorWithTTA\n==========\n\n")
             model = ParsingSemanticSegmentorWithTTA(cfg, model)
         else:
             model = SemanticSegmentorWithTTA(cfg, model)

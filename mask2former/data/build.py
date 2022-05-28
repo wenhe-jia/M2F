@@ -294,7 +294,6 @@ def _test_loader_from_config(cfg, dataset_name, mapper=None):
     )
     if mapper is None:
         if "lip" in cfg.DATASETS.TEST[0]:
-            print('\n\n===========\nuse MaskFormerSingleParsingTestDatasetMapper\n===========\n\n')
             mapper = MaskFormerSingleParsingSemanticTestDatasetMapper(cfg, False)
         else:
             mapper = DatasetMapper(cfg, False)
