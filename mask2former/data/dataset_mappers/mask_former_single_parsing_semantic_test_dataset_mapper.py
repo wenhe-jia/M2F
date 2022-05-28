@@ -138,13 +138,6 @@ class MaskFormerSingleParsingSemanticTestDatasetMapper:
         image, sem_seg_gt = center_to_target_size(image, sem_seg_gt, self.test_size)
         # image, sem_seg_gt = affine_to_target_size(image, sem_seg_gt, self.test_size)
 
-        # image_name = dataset_dict["file_name"].split('/')[-1].split('.')[0]
-        # save_dir = '/home/user/Program/vis/m2f-parsing/Mask2Former/check-lip/test/test_' + image_name + '/'
-        # os.makedirs(save_dir)
-
-        # cv2.imwrite(save_dir + 'image.jpg', image)
-        # cv2.imwrite(save_dir + 'gt.png', sem_seg_gt*15)
-
         # image_shape = image.shape[:2]  # h, w
         # Pytorch's dataloader is efficient on torch.Tensor due to shared-memory,
         # but not efficient on large generic data structures due to the use of pickle & mp.Queue.

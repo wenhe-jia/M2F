@@ -2,7 +2,7 @@
 import itertools
 import json
 import logging
-import os
+import os, cv2
 from collections import OrderedDict
 
 import numpy as np
@@ -101,7 +101,6 @@ class SingleParsingSemSegEvaluator(DatasetEvaluator):
                 segmentation prediction in the same format.
         """
         for input, output in zip(inputs, outputs):
-            # output["sem_seg"]  # (num_cls, H_org, W_org)
             output = output["sem_seg"].argmax(dim=0).to(self._cpu_device)  # (H_org, W_org)
             pred = np.array(output, dtype=np.int)
             gt = input["sem_seg"].cpu().numpy().astype(np.int)

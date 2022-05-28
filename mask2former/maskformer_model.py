@@ -285,7 +285,6 @@ class MaskFormer(nn.Module):
                             mask_pred_result, image_size, height, width
                         )
                     elif self.parsing_on and not self.multi_person_parsing:
-                        print("\n\n===========\nUsing single_parsing_sem_seg_postprocess\n===========\n\n")
                         mask_pred_result = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(
                             mask_pred_result, image_size, height, width
                         )
