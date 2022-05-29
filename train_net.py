@@ -58,13 +58,10 @@ from mask2former import (
     add_maskformer2_config,
     MaskFormerParsingSemanticDatasetMapper,
     MaskFormerParsingInstanceDatasetMapper,
-    InsSeg2SemSegEvaluator,
     ParsingSemanticSegmentorWithTTA,
     ParsingEvaluator,
     build_detection_test_loader,
 )
-
-from PIL import Image
 
 
 class Trainer(DefaultTrainer):
@@ -86,68 +83,82 @@ class Trainer(DefaultTrainer):
         evaluator_list = []
         evaluator_type = MetadataCatalog.get(dataset_name).evaluator_type
 
-        # semantic segmentation
-        if evaluator_type in ["sem_seg", "ade20k_panoptic_seg"]:
+        # parsing evaluation
+        if cfg.MODEL.MASK_FORMER.TEST.PARSING.PARSING_ON:
+            parsing_metrics = ()
+            if evaluator_type == "sem_seg":
+                parsing_metrics = ("mIoU")
+            elif evaluator_type == "coco":
+                if not cfg.MODEL.MASK_FORMER.TEST.PARSING.WITH_HUMAN:
+                    parsing_metrics = ("mIoU", "APr")
+                else:
+                    parsing_metrics = ("mIoU", "APr", "APh", "APp")
+            assert len(parsing_metrics), "No metrics specified for parsing."
+
             evaluator_list.append(
-                SemSegEvaluator(
-                    dataset_name,
-                    distributed=True,
-                    output_dir=output_folder,
-                )
+                ParsingEvaluator(dataset_name, output_dir=output_folder, parsing_metrics=parsing_metrics)
             )
-        # instance segmentation
-        if evaluator_type == "coco":
-            if "cihp" in cfg.DATASETS.TEST[0] or "lip" in cfg.DATASETS.TEST[0]:
-                evaluator_list.append(ParsingEvaluator(dataset_name, output_dir=output_folder))
-            else:
+
+        else:
+            # semantic segmentation
+            if evaluator_type in ["sem_seg", "ade20k_panoptic_seg"]:
+                evaluator_list.append(
+                    SemSegEvaluator(
+                        dataset_name,
+                        distributed=True,
+                        output_dir=output_folder,
+                    )
+                )
+            # instance segmentation
+            if evaluator_type == "coco":
                 evaluator_list.append(COCOEvaluator(dataset_name, output_dir=output_folder))
-        # panoptic segmentation
-        if evaluator_type in [
-            "coco_panoptic_seg",
-            "ade20k_panoptic_seg",
-            "cityscapes_panoptic_seg",
-            "mapillary_vistas_panoptic_seg",
-        ]:
-            if cfg.MODEL.MASK_FORMER.TEST.PANOPTIC_ON:
-                evaluator_list.append(COCOPanopticEvaluator(dataset_name, output_folder))
-        # COCO
-        if evaluator_type == "coco_panoptic_seg" and cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON:
-            evaluator_list.append(COCOEvaluator(dataset_name, output_dir=output_folder))
-        if evaluator_type == "coco_panoptic_seg" and cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON:
-            evaluator_list.append(SemSegEvaluator(dataset_name, distributed=True, output_dir=output_folder))
-        # Mapillary Vistas
-        if evaluator_type == "mapillary_vistas_panoptic_seg" and cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON:
-            evaluator_list.append(InstanceSegEvaluator(dataset_name, output_dir=output_folder))
-        if evaluator_type == "mapillary_vistas_panoptic_seg" and cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON:
-            evaluator_list.append(SemSegEvaluator(dataset_name, distributed=True, output_dir=output_folder))
-        # Cityscapes
-        if evaluator_type == "cityscapes_instance":
-            assert (
-                torch.cuda.device_count() > comm.get_rank()
-            ), "CityscapesEvaluator currently do not work with multiple machines."
-            return CityscapesInstanceEvaluator(dataset_name)
-        if evaluator_type == "cityscapes_sem_seg":
-            assert (
-                torch.cuda.device_count() > comm.get_rank()
-            ), "CityscapesEvaluator currently do not work with multiple machines."
-            return CityscapesSemSegEvaluator(dataset_name)
-        if evaluator_type == "cityscapes_panoptic_seg":
-            if cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON:
+            # panoptic segmentation
+            if evaluator_type in [
+                "coco_panoptic_seg",
+                "ade20k_panoptic_seg",
+                "cityscapes_panoptic_seg",
+                "mapillary_vistas_panoptic_seg",
+            ]:
+                if cfg.MODEL.MASK_FORMER.TEST.PANOPTIC_ON:
+                    evaluator_list.append(COCOPanopticEvaluator(dataset_name, output_folder))
+            # COCO
+            if evaluator_type == "coco_panoptic_seg" and cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON:
+                evaluator_list.append(COCOEvaluator(dataset_name, output_dir=output_folder))
+            if evaluator_type == "coco_panoptic_seg" and cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON:
+                evaluator_list.append(SemSegEvaluator(dataset_name, distributed=True, output_dir=output_folder))
+            # Mapillary Vistas
+            if evaluator_type == "mapillary_vistas_panoptic_seg" and cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON:
+                evaluator_list.append(InstanceSegEvaluator(dataset_name, output_dir=output_folder))
+            if evaluator_type == "mapillary_vistas_panoptic_seg" and cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON:
+                evaluator_list.append(SemSegEvaluator(dataset_name, distributed=True, output_dir=output_folder))
+            # Cityscapes
+            if evaluator_type == "cityscapes_instance":
                 assert (
                     torch.cuda.device_count() > comm.get_rank()
                 ), "CityscapesEvaluator currently do not work with multiple machines."
-                evaluator_list.append(CityscapesSemSegEvaluator(dataset_name))
-            if cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON:
+                return CityscapesInstanceEvaluator(dataset_name)
+            if evaluator_type == "cityscapes_sem_seg":
                 assert (
                     torch.cuda.device_count() > comm.get_rank()
                 ), "CityscapesEvaluator currently do not work with multiple machines."
-                evaluator_list.append(CityscapesInstanceEvaluator(dataset_name))
-        # ADE20K
-        if evaluator_type == "ade20k_panoptic_seg" and cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON:
-            evaluator_list.append(InstanceSegEvaluator(dataset_name, output_dir=output_folder))
-        # LVIS
-        if evaluator_type == "lvis":
-            return LVISEvaluator(dataset_name, output_dir=output_folder)
+                return CityscapesSemSegEvaluator(dataset_name)
+            if evaluator_type == "cityscapes_panoptic_seg":
+                if cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON:
+                    assert (
+                        torch.cuda.device_count() > comm.get_rank()
+                    ), "CityscapesEvaluator currently do not work with multiple machines."
+                    evaluator_list.append(CityscapesSemSegEvaluator(dataset_name))
+                if cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON:
+                    assert (
+                        torch.cuda.device_count() > comm.get_rank()
+                    ), "CityscapesEvaluator currently do not work with multiple machines."
+                    evaluator_list.append(CityscapesInstanceEvaluator(dataset_name))
+            # ADE20K
+            if evaluator_type == "ade20k_panoptic_seg" and cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON:
+                evaluator_list.append(InstanceSegEvaluator(dataset_name, output_dir=output_folder))
+            # LVIS
+            if evaluator_type == "lvis":
+                return LVISEvaluator(dataset_name, output_dir=output_folder)
         if len(evaluator_list) == 0:
             raise NotImplementedError(
                 "no Evaluator for the dataset {} with the type {}".format(
@@ -180,9 +191,11 @@ class Trainer(DefaultTrainer):
         elif cfg.INPUT.DATASET_MAPPER_NAME == "coco_panoptic_lsj":
             mapper = COCOPanopticNewBaselineDatasetMapper(cfg, True)
             return build_detection_train_loader(cfg, mapper=mapper)
+        # parsing instance segmentation dataset mapper
         elif cfg.INPUT.DATASET_MAPPER_NAME == "mask_former_parsing_instance":
             mapper = MaskFormerParsingInstanceDatasetMapper(cfg, True)
             return build_detection_train_loader(cfg, mapper=mapper)
+        # parsing semantic segmentation dataset mapper
         elif cfg.INPUT.DATASET_MAPPER_NAME == "mask_former_parsing_semantic":
             mapper = MaskFormerParsingSemanticDatasetMapper(cfg, True)
             return build_detection_train_loader(cfg, mapper=mapper)
@@ -293,7 +306,7 @@ class Trainer(DefaultTrainer):
         logger = logging.getLogger("detectron2.trainer")
         # In the end of training, run an evaluation with TTA.
         logger.info("Running inference with test-time augmentation ...")
-        if "lip" in cfg.DATASETS.TEST[0] or "cihp" in cfg.DATASETS.TEST[0]:
+        if cfg.MODEL.MASK_FORMER.TEST.PARSING.PARSING_ON:
             model = ParsingSemanticSegmentorWithTTA(cfg, model)
         else:
             model = SemanticSegmentorWithTTA(cfg, model)

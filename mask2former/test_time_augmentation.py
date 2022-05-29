@@ -105,7 +105,6 @@ class ParsingSemanticSegmentorWithTTA(nn.Module):
         self.cfg = cfg.clone()
         self.flip_map = get_parsing_flip_map(self.cfg.DATASETS.TEST)
         self.model = model
-        self.instance_to_semantic = self.cfg.MODEL.MASK_FORMER.TEST.PARSING.INSTANCE_TO_SEMANTIC
 
         if tta_mapper is None:
             if "lip" in cfg.DATASETS.TEST[0]:
@@ -145,56 +144,50 @@ class ParsingSemanticSegmentorWithTTA(nn.Module):
         Returns:
             dict: one output dict
         """
-        image_name = input['file_name'].split('/')[-1].split('.')[0]
-
         orig_shape = (input["height"], input["width"])
         augmented_inputs, tfms = self._get_augmented_inputs(input)
 
-        final_predictions = None
+        # semantic TTA
+        final_semantic_predictions = None
         count_predictions = 0
-
         for input, tfm in zip(augmented_inputs, tfms):
             count_predictions += 1
             with torch.no_grad():
                 if final_predictions is None:
                     if any(isinstance(t, HFlipTransform) for t in tfm.transforms):
-                        flipped_predictions = self.model([input])[0].pop("sem_seg")
-                        # flipped_predictions = self.model([input])[0].pop("parsing")['semseg_outputs']  #
-                        final_predictions = self.flip_parsing_back(flipped_predictions)
+                        flipped_semantic_predictions = self.model([input])[0].pop("parsing")['semseg_outputs']
+                        final_semantic_predictions = self.flip_parsing_semantic_back(flipped_semantic_predictions)
 
                     else:
-                        final_predictions = self.model([input])[0].pop("sem_seg")
-                        # final_predictions = self.model([input])[0].pop("parsing")['semseg_outputs']  #
+                        final_semantic_predictions = self.model([input])[0].pop("parsing")['semseg_outputs']
                 else:
                     if any(isinstance(t, HFlipTransform) for t in tfm.transforms):
-                        flipped_predictions = self.model([input])[0].pop("sem_seg")
-                        # flipped_predictions = self.model([input])[0].pop("parsing")['semseg_outputs']  #
-                        final_predictions += self.flip_parsing_back(flipped_predictions)
+                        flipped_predictions = self.model([input])[0].pop("parsing")['semseg_outputs']
+                        final_semantic_predictions += self.flip_parsing_semantic_back(flipped_predictions)
                     else:
-                        final_predictions += self.model([input])[0].pop("sem_seg")
-                        # final_predictions += self.model([input])[0].pop("parisng")['semseg_outputs']
+                        final_semantic_predictions += self.model([input])[0].pop("parisng")['semseg_outputs']
+        final_semantic_predictions = final_semantic_predictions / count_predictions
 
-        final_predictions = final_predictions / count_predictions
+        """
+        TODO: add instance and parsing merge
+        """
 
-
-        # return {
-        #     "parsing": {
-        #         "semseg_outputs": final_predictions.argmax(dim=0).cpu().numpy(),
-        #         "parsing_outputs": [],
-        #         "part_outputs": [],
-        #         "human_outputs": []
-        #     }
-        # }
-        return {"sem_seg": final_predictions}
-
+        return {
+            "parsing": {
+                "semseg_outputs": final_semantic_predictions.cpu(),
+                "parsing_outputs": [],
+                "part_outputs": [],
+                "human_outputs": []
+            }
+        }
 
     def _get_augmented_inputs(self, input):
         augmented_inputs = self.tta_mapper(input)
         tfms = [x.pop("transforms") for x in augmented_inputs]
         return augmented_inputs, tfms
 
-    def flip_parsing_back(self, predictions):
-        spatial_flipback_predictions = predictions.flip(dims=[2])  # (num_cls, H, W)
+    def flip_parsing_semantic_back(self, predictions):
+        spatial_flipback_predictions = predictions.flip(dims=[2])
         spatial_channel_flipback_predictions = copy.deepcopy(spatial_flipback_predictions)
 
         # channel transaction to flip human part label

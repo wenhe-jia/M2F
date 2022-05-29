@@ -48,13 +48,12 @@ class MaskFormer(nn.Module):
         panoptic_on: bool,
         instance_on: bool,
         test_topk_per_image: int,
-        # evaluate parsing semseg metrics(mIoU) with insseg model
+        # parsing inference
         parsing_on: bool,
-        instance_to_semantic: bool,
-        parsing_with_human: bool,
+        multi_human_parsing: bool,
+        with_human_instance: bool,
         parsing_ins_score_thr: float,
         iop_thresh: float,
-        multi_person_parsing: bool
     ):
         """
         Args:
@@ -101,13 +100,12 @@ class MaskFormer(nn.Module):
         self.instance_on = instance_on
         self.panoptic_on = panoptic_on
         self.test_topk_per_image = test_topk_per_image
-        # evaluate parsing
+        # parsing inference
         self.parsing_on = parsing_on
-        self.instance_to_semantic = instance_to_semantic
-        self.parsing_with_human = parsing_with_human
+        self.multi_human_parsing = multi_human_parsing
+        self.with_human_instance = with_human_instance
         self.parsing_ins_score_thr = parsing_ins_score_thr
         self.iop_thresh = iop_thresh
-        self.multi_person_parsing = multi_person_parsing
 
         if not self.semantic_on:
             assert self.sem_seg_postprocess_before_inference
@@ -156,16 +154,6 @@ class MaskFormer(nn.Module):
             importance_sample_ratio=cfg.MODEL.MASK_FORMER.IMPORTANCE_SAMPLE_RATIO,
         )
 
-        if "cihp" in cfg.DATASETS.TEST[0]:
-            parsing_on = True
-            multi_person_parsing = True
-        elif "lip" in cfg.DATASETS.TEST[0]:
-            parsing_on = True
-            multi_person_parsing = False
-        else:
-            parsing_on = False
-            multi_person_parsing = True
-
         return {
             "backbone": backbone,
             "sem_seg_head": sem_seg_head,
@@ -188,12 +176,11 @@ class MaskFormer(nn.Module):
             "panoptic_on": cfg.MODEL.MASK_FORMER.TEST.PANOPTIC_ON,
             "test_topk_per_image": cfg.TEST.DETECTIONS_PER_IMAGE,
             # parsing
-            "parsing_on": parsing_on,
-            "instance_to_semantic": cfg.MODEL.MASK_FORMER.TEST.PARSING.INSTANCE_TO_SEMANTIC,
-            "parsing_with_human": cfg.MODEL.MASK_FORMER.TEST.PARSING.PARSING_WITH_HUMAN,
+            "parsing_on": cfg.MODEL.MASK_FORMER.TEST.PARSING.PARSING_ON,
+            "multi_human_parsing": cfg.MODEL.MASK_FORMER.TEST.PARSING.MULTI_HUMAN_PARSING,
+            "with_human_instance": cfg.MODEL.MASK_FORMER.TEST.PARSING.WITH_HUMAN_INSTANCE,
             "parsing_ins_score_thr": cfg.MODEL.MASK_FORMER.TEST.PARSING.PARSING_INS_SCORE_THR,
             "iop_thresh": cfg.MODEL.MASK_FORMER.TEST.PARSING.IOP_THR,
-            "multi_person_parsing": multi_person_parsing,
         }
 
     @property
@@ -276,17 +263,13 @@ class MaskFormer(nn.Module):
                     """
                     TOD: maybe add single parsing postprocess
                     """
-                    if not self.parsing_on:
-                        mask_pred_result = retry_if_cuda_oom(sem_seg_postprocess)(
-                            mask_pred_result, image_size, height, width
-                        )
-                    elif self.parsing_on and self.multi_person_parsing:
-                        mask_pred_result = retry_if_cuda_oom(sem_seg_postprocess)(
-                            mask_pred_result, image_size, height, width
-                        )
-                    elif self.parsing_on and not self.multi_person_parsing:
+                    if self.parsing_on and not self.multi_person_parsing:
                         mask_pred_result = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(
                             mask_pred_result, image_size, input_per_image["crop_box"], height, width
+                        )
+                    else:
+                        mask_pred_result = retry_if_cuda_oom(sem_seg_postprocess)(
+                            mask_pred_result, image_size, height, width
                         )
                     mask_cls_result = mask_cls_result.to(mask_pred_result)  # change device as mask_pred_result
 
@@ -295,14 +278,21 @@ class MaskFormer(nn.Module):
                     r = retry_if_cuda_oom(self.semantic_inference)(mask_cls_result, mask_pred_result)
                     if not self.sem_seg_postprocess_before_inference:
                         if not self.parsing_on:
-                            r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height,width)
-                        elif self.parsing_on and self.multi_person_parsing:
                             r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height, width)
-                        elif self.parsing_on and not self.multi_person_parsing:
-                            r = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(
-                                r, image_size, input_per_image["crop_box"], height, width
-                            )
-                    processed_results[-1]["sem_seg"] = r
+                            processed_results[-1]["sem_seg"] = r
+                        else:
+                            if self.multi_person_parsing:
+                                r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height, width)
+                            else:
+                                r = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(
+                                    r, image_size, input_per_image["crop_box"], height, width
+                                )
+                            processed_results[-1]["parsing"] = {
+                                "semseg_outputs": r,
+                                "parsing_outputs": [],
+                                "part_outputs": [],
+                                "human_outputs": []
+                            }
 
                 # panoptic segmentation inference
                 if self.panoptic_on:
@@ -314,12 +304,27 @@ class MaskFormer(nn.Module):
                     if not self.parsing_on:
                         instance_r = retry_if_cuda_oom(self.instance_inference)(mask_cls_result, mask_pred_result)
                         processed_results[-1]["instances"] = instance_r  # compiled in "Instances" structure
-                    if self.parsing_on and self.instance_to_semantic:
-                        semantic_r = retry_if_cuda_oom(self.semantic_inference_for_instance_model)(mask_cls_result, mask_pred_result)
-                        processed_results[-1]["sem_seg"] = semantic_r
-                    elif self.parsing_on and not self.insseg_to_semseg and self.parsing_with_human:
-                        parsing_r = retry_if_cuda_oom(self.parsing_inference)(mask_cls_result, mask_pred_result)
-                        processed_results[-1]["parsing"] = parsing_r
+                    if self.parsing_on and not self.with_human_instance:
+                        semantic_r, part_instance_r = retry_if_cuda_oom(self.parsing_instance_inference_without_human)(
+                            mask_cls_result, mask_pred_result
+                        )
+                        processed_results[-1]["parsing"] = {
+                            "semseg_outputs": semantic_r,
+                            "parsing_outputs": [],
+                            "part_outputs": part_instance_r,
+                            "human_outputs": []
+                        }
+                    elif self.parsing_on and self.with_human_instance:
+                        semantic_r, part_instance_r, human_instance_r, human_parsing_r = \
+                            retry_if_cuda_oom(self.parsing_instance_inference_with_human)(
+                                mask_cls_result, mask_pred_result
+                            )
+                        processed_results[-1]["parsing"] = {
+                            "semseg_outputs": semantic_r,
+                            "part_outputs": part_instance_r,
+                            "human_outputs": human_instance_r,
+                            "parsing_outputs": human_parsing_r
+                        }
 
             return processed_results
 
@@ -454,121 +459,54 @@ class MaskFormer(nn.Module):
         result.pred_classes = labels_per_image
         return result
 
-    def semantic_inference_for_instance_model(self, mask_cls, mask_pred):
-        # mask_cls(Q, C)
-        # mask_pred(Q, H, W) is already processed to have the same shape as original input by func "sem_seg_postprocess"
-
-        # [Q, K]
-        scores = F.softmax(mask_cls, dim=-1)[:, :-1]  # discard non-sense category
+    def parsing_instance_inference_without_human(self, mask_cls, mask_pred):
+        scores = F.softmax(mask_cls, dim=-1)[:, :-1]
         labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)
         scores_per_image, topk_indices = scores.flatten(0, 1).topk(self.test_topk_per_image, sorted=False)
-        labels_per_image = labels[topk_indices]  # (topk,), scores_per_image in same shape
+        labels_per_image = labels[topk_indices]
 
         topk_indices = topk_indices // self.sem_seg_head.num_classes
-        mask_pred = mask_pred[topk_indices]  # (topk, H_org, W_org), mask of a query could be selected more than one time
+        mask_pred = mask_pred[topk_indices]
 
-        # for rescore by pixel score
-        binary_pred_masks = (mask_pred > 0).float()  # (topk, H_org, W_org), binary(float), before sigmoid
+        binary_pred_masks = (mask_pred > 0).float()
         mask_scores_per_image = (mask_pred.sigmoid().flatten(1) * binary_pred_masks.flatten(1)).sum(1) / \
-                                (binary_pred_masks.flatten(1).sum(1) + 1e-6)  # pixel score
+                                (binary_pred_masks.flatten(1).sum(1) + 1e-6)
 
         pred_scores = scores_per_image * mask_scores_per_image
         pred_labels = labels_per_image
         pred_masks = mask_pred
 
-        '''
-        Paste sigmoid results for each category
-        '''
-        im_h, im_w = mask_pred.shape[-2:]
-        semseg_im = [torch.zeros((im_h, im_w), dtype=torch.float32, device=pred_masks.device) + 1e-6]
-        for cls_ind in range(self.sem_seg_head.num_classes):  # 19 for CIHP, without background
-            keep_ind = torch.where(pred_labels == cls_ind)
-            scores_cate = pred_scores[keep_ind]
-            masks_cate = pred_masks[keep_ind].sigmoid()
+        semantic_res = self.paste_instance_to_semseg_probs(pred_labels, pred_scores, pred_masks)
 
-            # paste_time = 0
-            semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=pred_masks.device)
-            _indx = scores_cate.argsort()
-            for k in range(len(_indx)):
-                if scores_cate[_indx[k]] < self.parsing_ins_score_thr:
-                    continue
-                _ins_mask = masks_cate[_indx[k]] * scores_cate[_indx[k]]
-                semseg_cate = torch.where(_ins_mask > 0.5, _ins_mask + semseg_cate, semseg_cate)
-                # paste_time += 1
+        """
+        TODO: maybe make some modification to adapt to TTA
+        """
+        part_instance_res = []
+        for idx in range(pred_labels.shape[0]):
+            if pred_scores[idx] < 0.1:
+                continue
+            insseg_res.append(
+                {
+                    "category_id": pred_scores[idx].cpu(),
+                    "score"      : pred_scores[idx].cpu(),
+                    "mask"       : (pred_masks[idx] > 0.).cpu().numpy().astype(np.uint8),
+                }
+            )
 
-            # if paste_time > 0:
-            #     semseg_im.append(semseg_cate / paste_time)
-            # else:
-            #     semseg_im.append(semseg_cate)
+        return semantic_res, part_instance_res
 
-            semseg_im.append(semseg_cate)
-
-        return torch.stack(semseg_im, dim=0)  # (num_cls_ins, H_org, W_org)
-
-        # '''
-        # paste label
-        # '''
-        # semseg_im = torch.zeros((im_h, im_w), dtype=torch.uint8, device=pred_masks.device)
-        #
-        # _indx = pred_scores.argsort()
-        # for k in range(len(_indx)):
-        #     if pred_scores[_indx[k]] < self.ins2sem_score_thresh:
-        #         continue
-        #     _ins_mask = pred_masks[_indx[k]]
-        #     _ins_label = pred_labels[_indx[k]]
-        #     label_mask = torch.ones(_ins_mask.shape, dtype=torch.uint8, device=pred_masks.device) * (_ins_label + 1)
-        #     semseg_im = torch.where(_ins_mask > 0, label_mask, semseg_im)
-        #
-        # return semseg_im
-    def paste_instance_to_semseg_label_map(self, labels, scores, prob_masks):
-        '''
-        Paste sigmoid results for each category
-        '''
-        im_h, im_w = prob_masks.shape[-2:]
-        semseg_im = [torch.zeros((im_h, im_w), dtype=torch.float32, device=prob_masks.device) + 1e-6]
-        for cls_ind in range(self.sem_seg_head.num_classes - 1):  # 0~18 for CIHP, without background
-            keep_ind = torch.where(labels == cls_ind + 1)
-            scores_cate = scores[keep_ind]
-            masks_cate = prob_masks[keep_ind].sigmoid()
-
-            # paste_time = 0
-            semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=prob_masks.device)
-            _indx = scores_cate.argsort()
-            for k in range(len(_indx)):
-                if scores_cate[_indx[k]] < self.parsing_ins_score_thr:
-                    continue
-                _ins_mask = masks_cate[_indx[k]] * scores_cate[_indx[k]]
-                semseg_cate = torch.where(_ins_mask > 0.5, _ins_mask + semseg_cate, semseg_cate)
-                # paste_time += 1
-
-            # if paste_time > 0:
-            #     semseg_im.append(semseg_cate / paste_time)
-            # else:
-            #     semseg_im.append(semseg_cate)
-
-            semseg_im.append(semseg_cate)
-
-        # semseg_mask = torch.stack(semseg_im, dim=0)  #
-        semseg_mask = torch.stack(semseg_im, dim=0).argmax(dim=0).cpu().numpy()
-        return semseg_mask
-
-    def parsing_inference(self, mask_cls, mask_pred):
-        # mask_cls(Q, C)
-        # mask_pred(Q, H, W) is already processed to have the same shape as original input by func "sem_seg_postprocess"
-
-        # [Q, K]
-        scores = F.softmax(mask_cls, dim=-1)[:, :-1]  # discard non-sense category
+    def parsing_instance_inference_with_human(self, mask_cls, mask_pred):
+        scores = F.softmax(mask_cls, dim=-1)[:, :-1]
         labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)
         scores_per_image, topk_indices = scores.flatten(0, 1).topk(self.test_topk_per_image, sorted=False)
-        labels_per_image = labels[topk_indices]  # (topk,), scores_per_image in same shape
+        labels_per_image = labels[topk_indices]
 
         topk_indices = topk_indices // self.sem_seg_head.num_classes
-        mask_pred = mask_pred[topk_indices]  # (topk, H_org, W_org), mask of a query could be selected more than one time
+        mask_pred = mask_pred[topk_indices]
 
-        # for rescore by pixel score
-        binary_pred_masks = (mask_pred > 0).float()  # (topk, H_org, W_org), binary(float), before sigmoid
+        binary_pred_masks = (mask_pred > 0).float()
         mask_scores_per_image = (mask_pred.sigmoid().flatten(1) * binary_pred_masks.flatten(1)).sum(1) / \
-                                (binary_pred_masks.flatten(1).sum(1) + 1e-6)  # pixel score
+                                (binary_pred_masks.flatten(1).sum(1) + 1e-6)
 
         pred_scores = scores_per_image * mask_scores_per_image
         pred_labels = labels_per_image
@@ -583,39 +521,44 @@ class MaskFormer(nn.Module):
         person_scores = pred_scores[torch.where(pred_labels == 0)[0]]
         person_masks = pred_masks[torch.where(pred_labels == 0)[0], :, :]
 
-        person_keep_ind = torch.where(person_scores > 0.)[0]  # self.parsing_ins_score_thr
+        person_keep_ind = torch.where(person_scores > 0.)[0]
         person_scores = person_scores[person_keep_ind]
         person_masks = person_masks[person_keep_ind, :, :]
 
-        semseg_res = self.paste_instance_to_semseg_label_map(part_labels, part_scores, part_masks)
+        semantic_res = self.paste_instance_to_semseg_probs(part_labels, part_scores, part_masks)
 
-
-        part_res = []
+        """
+        TODO: maybe make some modification to adapt to TTA
+        """
+        part_instance_res = []
         for part_idx in range(part_labels.shape[0]):
             if part_scores[part_idx] < 0.1:
                 continue
-            part_res.append(
+            part_instance_res.append(
                 {
                     "category_id": part_labels[part_idx].cpu(),
-                    "score": part_scores[part_idx].cpu(),
-                    "mask": (part_masks[part_idx] > 0.).cpu().numpy().astype(np.uint8),
+                    "score"      : part_scores[part_idx].cpu(),
+                    "mask"       : (part_masks[part_idx] > 0.).cpu().numpy().astype(np.uint8),
                 }
             )
 
-        human_res = []
+        """
+        TODO: maybe make some modification to adapt to TTA
+        """
+        human_instance_res = []
         for person_idx in range(person_scores.shape[0]):
-            # if person_scores[person_idx] < 0.1:
-            #     continue
-            human_res.append(
+            human_instance_res.append(
                 {
                     "category_id": person_labels[person_idx].cpu(),
-                    "score": person_scores[person_idx].cpu(),
-                    "mask": (person_masks[person_idx] > 0.).cpu().numpy().astype(np.uint8),
+                    "score"      : person_scores[person_idx].cpu(),
+                    "mask"       : (person_masks[person_idx] > 0.).cpu().numpy().astype(np.uint8),
                 }
             )
 
-        pars_res = []
-        # prepare matching infos, matching is based on
+        """
+        TODO: maybe make some modification to adapt to TTA
+        """
+        human_parsing_res = []
         matching_mtx = torch.zeros((person_scores.shape[0], part_scores.shape[0]), dtype=torch.uint8)
         person_ids = torch.arange(person_masks.shape[0])
         part_ids = torch.arange(part_masks.shape[0])
@@ -636,22 +579,37 @@ class MaskFormer(nn.Module):
                 part_masks[matched_part_ids]
             )
 
-            pars_res.append(
+            human_parsing_res.append(
                 {
-                    "category_id": 1,
-                    "parsing": parsing_person.cpu().numpy(),  # (H, W)
-                    "instance_score": person_score.cpu(),
+                    "category_id"       : 1,
+                    "parsing"           : parsing_person.cpu().numpy(),
+                    "instance_score"    : person_score.cpu(),
                     "parsing_bbox_score": person_score.cpu(),
-                    "part_pixel_scores": parts_pix_score,
+                    "part_pixel_scores" : parts_pix_score,
                 }
             )
 
-        return {
-            "semseg_outputs": semseg_res,
-            "parsing_outputs": pars_res,
-            "part_outputs": part_res,
-            "human_outputs": human_res
-        }
+        return semantic_res, part_instance_res, human_instance_res, human_parsing_res
+
+    def paste_instance_to_semseg_probs(self, labels, scores, prob_masks):
+        im_h, im_w = prob_masks.shape[-2:]
+        semseg_im = [torch.zeros((im_h, im_w), dtype=torch.float32, device=prob_masks.device) + 1e-6]
+        for cls_ind in range(self.sem_seg_head.num_classes - 1):
+            keep_ind = torch.where(labels == cls_ind + 1)
+            scores_cate = scores[keep_ind]
+            masks_cate = prob_masks[keep_ind].sigmoid()
+
+            semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=prob_masks.device)
+            _indx = scores_cate.argsort()
+            for k in range(len(_indx)):
+                if scores_cate[_indx[k]] < self.parsing_ins_score_thr:
+                    continue
+                _ins_mask = masks_cate[_indx[k]] * scores_cate[_indx[k]]
+                semseg_cate = torch.where(_ins_mask > 0.5, _ins_mask + semseg_cate, semseg_cate)
+
+            semseg_im.append(semseg_cate)
+
+        return torch.stack(semseg_im, dim=0).cpu()
 
     def get_person_parsing(self, person_mask, part_scores, part_labels, part_masks):
         im_h, im_w = part_masks.shape[-2:]

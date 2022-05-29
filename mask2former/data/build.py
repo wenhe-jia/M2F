@@ -291,11 +291,13 @@ def _test_loader_from_config(cfg, dataset_name, mapper=None):
         if cfg.MODEL.LOAD_PROPOSALS
         else None,
     )
+    
     if mapper is None:
-        if "lip" in cfg.DATASETS.TEST[0]:
-            mapper = MaskFormerSingleParsingTestDatasetMapper(cfg, False)
-        else:
+        if cfg.MODEL.MASK_FORMER.TEST.PARSING.MULTI_HUMAN_PARSING:
             mapper = DatasetMapper(cfg, False)
+        else:
+            mapper = MaskFormerSingleParsingTestDatasetMapper(cfg, False)
+
     return {
         "dataset": dataset,
         "mapper": mapper,

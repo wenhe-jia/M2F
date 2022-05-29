@@ -1,4 +1,4 @@
-_BASE_: Base-CIHP-InstanceSegmentation-eval_semseg.yaml
+_BASE_: Base-CIHP-InstanceSegmentation.yaml
 MODEL:
   META_ARCHITECTURE: "MaskFormer"
   SEM_SEG_HEAD:
@@ -43,7 +43,7 @@ MODEL:
       OVERLAP_THRESHOLD: 0.8
       OBJECT_MASK_THRESHOLD: 0.8
       PARSING:
-        INSTANCE_TO_SEMANTIC: True
+        PARSING_ON: True
         PARSING_INS_SCORE_THR: 0.3
 SOLVER:
   IMS_PER_BATCH: 8  # 16
@@ -55,7 +55,7 @@ INPUT:
 TEST:
   EVAL_PERIOD: 30000
   AUG:
-    ENABLED: True
+    ENABLED: False
     MIN_SIZES: (640,)
     MAX_SIZE: 1400
     FLIP: True

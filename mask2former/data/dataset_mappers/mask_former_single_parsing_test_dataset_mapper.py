@@ -119,28 +119,16 @@ class MaskFormerSingleParsingTestDatasetMapper:
         image = utils.read_image(dataset_dict["file_name"], format=self.image_format)
         utils.check_image_size(dataset_dict, image)
 
-        # USER: Remove if you don't do semantic/panoptic segmentation.
-        if "sem_seg_file_name" in dataset_dict:
-            sem_seg_gt = utils.read_image(dataset_dict.pop("sem_seg_file_name"), "L").squeeze(2)
-        else:
-            sem_seg_gt = None
-
-        aug_input = T.AugInput(image, sem_seg=sem_seg_gt)
-        aug_input, transforms = T.apply_transform_gens(self.tfm_gens, aug_input)
-        image, sem_seg_gt = aug_input.image, aug_input.sem_seg
         # image, sem_seg_gt = center_to_target_size_semseg(image, sem_seg_gt, self.test_size)
         # image, sem_seg_gt = affine_to_target_size(image, sem_seg_gt, self.test_size)
         image, crop_box = center_to_target_size_test(image, self.test_size)
-        
+
         # image_shape = image.shape[:2]  # h, w
         # Pytorch's dataloader is efficient on torch.Tensor due to shared-memory,
         # but not efficient on large generic data structures due to the use of pickle & mp.Queue.
         # Therefore it's important to use torch.Tensor.
         dataset_dict["image"] = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))
         dataset_dict["crop_box"] = crop_box
-
-        if sem_seg_gt is not None:
-            dataset_dict["sem_seg"] = torch.as_tensor(sem_seg_gt.astype("long"))
 
         # USER: Modify this if you want to keep them for some reason.
         dataset_dict.pop("annotations", None)

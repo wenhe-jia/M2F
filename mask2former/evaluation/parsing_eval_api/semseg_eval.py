@@ -89,8 +89,7 @@ class SemSegEvaluator(object):
             semseg_res = [x for x in self.preds if image_name.replace('png', 'jpg') in x]
             if len(semseg_res) == 0:
                 continue
-
-            pre_png = semseg_res[0][image_name.replace('png', 'jpg')]
+            pre_png = semseg_res[0][image_name.replace('png', 'jpg')].toarray()
             gt_png = self.generate_gt_png(i, image_name, pre_png.shape)
 
             assert gt_png.shape == pre_png.shape, '{} VS {}'.format(str(gt_png.shape), str(pre_png.shape))

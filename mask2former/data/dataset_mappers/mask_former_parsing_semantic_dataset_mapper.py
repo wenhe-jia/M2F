@@ -69,7 +69,8 @@ class MaskFormerParsingSemanticDatasetMapper:
         logger.info(f"[{self.__class__.__name__}] Augmentations used in {mode}: {augmentations}")
 
         self.hflip_prob = 0.5
-        self.train_size = train_size  # w, h, when multi person parsing, train_size = None
+        # w, h, when multi person parsing, train_size = None
+        self.train_size = train_size
 
     @classmethod
     def from_config(cls, cfg, is_train=True):

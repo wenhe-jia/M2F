@@ -64,7 +64,8 @@ class MaskFormerParsingInstanceDatasetMapper:
         mode = "training" if is_train else "inference"
         logger.info(f"[{self.__class__.__name__}] Augmentations used in {mode}: {augmentations}")
 
-        self.train_size = train_size  # w, h, when multi person parsing, train_size = None
+        # w, h, when multi person parsing, train_size = None
+        self.train_size = train_size
 
     @classmethod
     def from_config(cls, cfg, is_train=True):
@@ -73,7 +74,8 @@ class MaskFormerParsingInstanceDatasetMapper:
         train_size = None
 
         # Build augmentation
-        if "lip" in cfg.DATASETS.TRAIN[0]:  # for single person human parsing, e.g. LIP and ATR
+        if "lip" in cfg.DATASETS.TRAIN[0]:
+            # for single person human parsing, e.g. LIP and ATR
             multi_person_parsing = False
 
             train_size = cfg.INPUT.SINGLE_PARSING.SCALES[0]
@@ -90,6 +92,7 @@ class MaskFormerParsingInstanceDatasetMapper:
                     RandomCenterRotation(rot_factor)
                 )
         else:
+            # for multi person human parsing, e.g. CIHP and MHP
             augs = [
                 T.ResizeShortestEdge(
                     cfg.INPUT.MIN_SIZE_TRAIN,
