@@ -26,8 +26,8 @@ from .data.dataset_mappers.mask_former_parsing_semantic_dataset_mapper import (
     MaskFormerParsingSemanticDatasetMapper,
 )
 
-from .data.dataset_mappers.mask_former_single_parsing_semantic_test_dataset_mapper import (
-    MaskFormerSingleParsingSemanticTestDatasetMapper
+from .data.dataset_mappers.mask_former_single_parsing_test_dataset_mapper import (
+    MaskFormerSingleParsingTestDatasetMapper
 )
 
 from .data.build import build_detection_test_loader
@@ -39,6 +39,4 @@ from .test_time_augmentation import SemanticSegmentorWithTTA, ParsingSemanticSeg
 
 # evaluation
 from .evaluation.instance_evaluation import InstanceSegEvaluator
-from .evaluation.insseg2semseg_evaluation import InsSeg2SemSegEvaluator
 from .evaluation.parsing_evaluation import ParsingEvaluator
-from .evaluation.single_parsing_semseg_evaluation import SingleParsingSemSegEvaluator

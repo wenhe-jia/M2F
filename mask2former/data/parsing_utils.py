@@ -30,7 +30,9 @@ __all__ = [
     "flip_parsing_instance_category",
     "compute_parsing_IoP",
     "affine_to_target_size",
-    "center_to_target_size",
+    "center_to_target_size_semseg",
+    "center_to_target_size_instance",
+    "center_to_target_size_test",
 ]
 
 
@@ -225,7 +227,7 @@ def change_aspect_ratio(w, h, aspect_ratio):
     return w, h
 
 
-def center_to_target_size(img, gt, target_size):
+def center_to_target_size_semseg(img, gt, target_size):
     assert img.shape[:2] == gt.shape
     tfmd_h, tfmd_w = img.shape[0], img.shape[1]
 
@@ -273,7 +275,7 @@ def center_to_target_size_instance(img, annos, target_size):
 
     tfm_list = []
     if src_h > trg_h and src_w > trg_w:
-        crop_w = int((src_h - trg_h) / 2)
+        crop_w = int((src_w - trg_w) / 2)
         crop_h = int((src_h - trg_h) / 2)
         tfm_list.append(CropTransform(crop_w, crop_h, trg_w, trg_h))
 
@@ -319,3 +321,60 @@ def center_to_target_size_instance(img, annos, target_size):
 
     return new_img, annos
 
+def center_to_target_size_test(img, target_size):
+    src_h, src_w = img.shape[0], img.shape[1]
+    trg_h, trg_w = target_size[1], target_size[0]
+
+    new_h, new_w = 0, 0
+    tfm_list = []
+    if src_h > trg_h and src_w > trg_w:
+        if src_h > src_w:
+            new_h = trg_h
+            new_w = int(new_h * src_w / src_h)
+            if new_w > trg_w:
+                new_w = trg_w
+                new_h = int(new_w * src_h / src_w)
+        elif src_w > src_h:
+            new_w = trg_w
+            new_h = int(new_w * src_h / src_w)
+            if new_h > trg_h:
+                new_h = trg_h
+                new_w = int(new_h * src_w / src_h)
+        tfm_list.append(T.ResizeTransform(src_h, src_w, new_h, new_w))
+        tfm_list.append(PadTransform(new_h, new_w, trg_h, trg_w))
+
+    elif src_h > trg_h and src_w <= trg_w:
+        new_h = trg_h
+        new_w = int(new_h * src_w / src_h)
+        tfm_list.append(T.ResizeTransform(src_h, src_w, new_h, new_w))
+        tfm_list.append(PadTransform(new_h, new_w, trg_h, trg_w))
+
+    elif src_h <= trg_h and src_w > trg_w:
+        new_w = trg_w
+        new_h = int(new_w * src_h / src_w)
+        tfm_list.append(T.ResizeTransform(src_h, src_w, new_h, new_w))
+        tfm_list.append(PadTransform(new_h, new_w, trg_h, trg_w))
+
+    else:
+        new_h, new_w = src_h, src_w
+        tfm_list.append(PadTransform(new_h, new_w, trg_h, trg_w))
+
+    box = get_box(new_h, new_w, trg_h, trg_w)
+
+    new_img = copy.deepcopy(img)
+    for tfm in tfm_list:
+        new_img = tfm.apply_image(new_img)
+
+    return new_img, box
+
+def get_box(src_h, src_w, trg_h, trg_w):
+    assert src_h <= trg_h, "expect src_h <= trg_h"
+    assert src_w <= trg_w, "expect src_w <= trg_w"
+
+    x0 = int((trg_w - src_w) / 2)
+    x1 = src_w + x0
+    y0 = int((trg_h - src_h) / 2)
+    y1 = src_h + y0
+
+    box = [x0, y0, x1, y1]
+    return box

@@ -18,7 +18,7 @@ from detectron2.data.transforms import (
 )
 from detectron2.config import configurable
 from detectron2.data import MetadataCatalog
-from .data.parsing_utils import get_parsing_flip_map, center_to_target_size
+from .data.parsing_utils import get_parsing_flip_map
 
 __all__ = [
     "ParsingSemanticSegmentorWithTTA",
@@ -82,89 +82,6 @@ class SingleParsingDatasetMapperTTA:
             ret.append(dic)
         return ret
 
-# class SingleParsingDatasetMapperTTA:
-#     """
-#     Implement test-time augmentation for detection data.
-#     It is a callable which takes a dataset dict from a detection dataset,
-#     and returns a list of dataset dicts where the images
-#     are augmented from the input image by the transformations defined in the config.
-#     This is used for test-time augmentation.
-#     """
-#
-#     @configurable
-#     def __init__(self, test_scales, flip: bool):
-#         """
-#         Args:
-#             min_sizes: list of short-edge size to resize the image to
-#             max_size: maximum height or width of resized images
-#             flip: whether to apply flipping augmentation
-#         """
-#         self.test_scales = test_scales
-#         self.flip = flip
-#
-#     @classmethod
-#     def from_config(cls, cfg):
-#         return {
-#             "test_scales": cfg.INPUT.SINGLE_PARSING.SCALES,
-#             "flip": cfg.TEST.AUG.FLIP,
-#         }
-#
-#     def __call__(self, dataset_dict):
-#         """
-#         Args:
-#             dict: a dict in standard model input format. See tutorials for details.
-#
-#         Returns:
-#             list[dict]:
-#                 a list of dicts, which contain augmented version of the input image.
-#                 The total number of dicts is ``len(min_sizes) * (2 if flip else 1)``.
-#                 Each dict has field "transforms" which is a TransformList,
-#                 containing the transforms that are used to generate this image.
-#         """
-#         numpy_image = dataset_dict["image"].permute(1, 2, 0).numpy()
-#         sem_seg_gt = utils.read_image(dataset_dict.pop("sem_seg_file_name"), "L").squeeze(2)
-#
-#         shape = numpy_image.shape
-#         orig_shape = (dataset_dict["height"], dataset_dict["width"])
-#         if shape[:2] != orig_shape:
-#             # It transforms the "original" image in the dataset to the input image
-#             pre_tfm = ResizeTransform(orig_shape[0], orig_shape[1], shape[0], shape[1])
-#         else:
-#             pre_tfm = NoOpTransform()
-#
-#         # Create all combinations of augmentations to use
-#         aug_candidates = []
-#         for test_scale in self.test_scales:
-#             aug_candidates.append({"scale": test_scale})
-#             if self.flip:
-#                 aug_candidates.append(
-#                     {
-#                         "scale": test_scale,
-#                         "flip": RandomFlip(prob=1.0)
-#                     }
-#                 )
-#
-#         # Apply all the augmentations
-#         ret = []
-#         for aug in aug_candidates:
-#             tfms = {"scale": aug["scale"]}
-#             if "flip" in aug:
-#                 new_image, tfms = apply_augmentations(aug, np.copy(numpy_image))
-#                 tfms["flip"] = True
-#             else:
-#                 new_image = numpy_image
-#                 tfms["flip"] = False
-#
-#             new_image, new_sem_seg_gt = center_to_target_size(new_image, sem_seg_gt, aug["scale"])
-#             torch_image = torch.from_numpy(np.ascontiguousarray(new_image.transpose(2, 0, 1)))
-#             torch_gt = torch.as_tensor(new_sem_seg_gt.astype("long"))
-#
-#             dic = copy.deepcopy(dataset_dict)
-#             dic["transforms"] = tfms
-#             dic["image"] = torch_image
-#             dic["sem_seg"] = torch_gt
-#             ret.append(dic)
-#         return ret
 
 class ParsingSemanticSegmentorWithTTA(nn.Module):
     """
@@ -188,16 +105,14 @@ class ParsingSemanticSegmentorWithTTA(nn.Module):
         self.cfg = cfg.clone()
         self.flip_map = get_parsing_flip_map(self.cfg.DATASETS.TEST)
         self.model = model
-        self.insseg_to_semseg = self.cfg.MODEL.MASK_FORMER.TEST.INSSEG_TO_SEMSEG
+        self.instance_to_semantic = self.cfg.MODEL.MASK_FORMER.TEST.PARSING.INSTANCE_TO_SEMANTIC
 
         if tta_mapper is None:
-            if cfg.MODEL.MASK_FORMER.MULTI_PERSON_PARSING:
-                tta_mapper = DatasetMapperTTA(cfg)
-            else:
-                print("\n\n===========\nUsing SingleParsingDatasetMapperTTA\n===========\n\n")
+            if "lip" in cfg.DATASETS.TEST[0]:
                 tta_mapper = SingleParsingDatasetMapperTTA(cfg)
-        # if tta_mapper is None:
-        #     tta_mapper = DatasetMapperTTA(cfg)
+            else:
+                tta_mapper = DatasetMapperTTA(cfg)
+
         self.tta_mapper = tta_mapper
         self.batch_size = batch_size
 

@@ -286,7 +286,7 @@ class MaskFormer(nn.Module):
                         )
                     elif self.parsing_on and not self.multi_person_parsing:
                         mask_pred_result = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(
-                            mask_pred_result, image_size, height, width
+                            mask_pred_result, image_size, input_per_image["crop_box"], height, width
                         )
                     mask_cls_result = mask_cls_result.to(mask_pred_result)  # change device as mask_pred_result
 
@@ -299,7 +299,9 @@ class MaskFormer(nn.Module):
                         elif self.parsing_on and self.multi_person_parsing:
                             r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height, width)
                         elif self.parsing_on and not self.multi_person_parsing:
-                            r = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(r, image_size, height, width)
+                            r = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(
+                                r, image_size, input_per_image["crop_box"], height, width
+                            )
                     processed_results[-1]["sem_seg"] = r
 
                 # panoptic segmentation inference

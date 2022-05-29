@@ -14,7 +14,7 @@ from detectron2.projects.point_rend import ColorAugSSDTransform
 from detectron2.structures import BitMasks, Instances, polygons_to_bitmask
 
 from ..parsing_utils import get_parsing_flip_map, transform_parsing_instance_annotations,\
-    flip_parsing_semantic_category, center_to_target_size, affine_to_target_size, center_to_target_size_instance
+    flip_parsing_semantic_category, center_to_target_size_semseg, affine_to_target_size, center_to_target_size_instance
 from ..transforms.augmentation_impl import ResizeByAspectRatio, ResizeByScale, RandomCenterRotation
 
 __all__ = ["MaskFormerParsingInstanceDatasetMapper"]
@@ -143,7 +143,6 @@ class MaskFormerParsingInstanceDatasetMapper:
             for obj in dataset_dict.pop("annotations")
             if obj.get("iscrowd", 0) == 0
         ]
-
 
         if not self.multi_person_parsing:
             image, annos = center_to_target_size_instance(image, annos, self.train_size)

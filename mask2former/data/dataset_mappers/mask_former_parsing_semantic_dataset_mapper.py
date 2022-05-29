@@ -15,7 +15,7 @@ from detectron2.structures import BitMasks, Instances
 
 import random, cv2, os
 from PIL import Image
-from ..parsing_utils import flip_parsing_semantic_category, center_to_target_size, affine_to_target_size
+from ..parsing_utils import flip_parsing_semantic_category, center_to_target_size_semseg, affine_to_target_size
 from ..transforms.augmentation_impl import ResizeByAspectRatio, ResizeByScale, RandomCenterRotation
 
 __all__ = ["MaskFormerParsingSemanticDatasetMapper"]
@@ -176,7 +176,7 @@ class MaskFormerParsingSemanticDatasetMapper:
             image = aug_input.image
             sem_seg_gt = aug_input.sem_seg
 
-            image, sem_seg_gt = center_to_target_size(image, sem_seg_gt, self.train_size)
+            image, sem_seg_gt = center_to_target_size_semseg(image, sem_seg_gt, self.train_size)
             # image, sem_seg_gt = affine_to_target_size(image, sem_seg_gt, self.train_size)
 
         # Pad image and segmentation label here!

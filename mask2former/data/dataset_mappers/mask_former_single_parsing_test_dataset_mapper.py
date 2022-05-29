@@ -15,7 +15,8 @@ from detectron2.projects.point_rend import ColorAugSSDTransform
 from detectron2.structures import BitMasks, Instances
 
 from ..transforms.augmentation_impl import ResizeByAspectRatio, ResizeByScale, RandomCenterRotation
-from ..parsing_utils import flip_parsing_semantic_category, center_to_target_size, affine_to_target_size
+from ..parsing_utils import flip_parsing_semantic_category, \
+    center_to_target_size_semseg, affine_to_target_size, center_to_target_size_test
 
 """
 This file contains the default mapping that's applied to "dataset dicts".
@@ -24,15 +25,7 @@ This file contains the default mapping that's applied to "dataset dicts".
 __all__ = ["MaskFormerSingleParsingSemanticTestDatasetMapper"]
 
 
-def build_augmentation(cfg):
-    test_size = cfg.INPUT.SINGLE_PARSING.SCALES[0]
-    aspect_ratio = test_size[0] * 1.0 / test_size[1]
-    # augs = [ResizeByAspectRatio(aspect_ratio, interp=Image.NEAREST)]
-    # return augs
-    return []
-
-
-class MaskFormerSingleParsingSemanticTestDatasetMapper:
+class MaskFormerSingleParsingTestDatasetMapper:
     """
     A callable which takes a dataset dict in Detectron2 Dataset format,
     and map it into a format used by the model.
@@ -95,7 +88,7 @@ class MaskFormerSingleParsingSemanticTestDatasetMapper:
 
     @classmethod
     def from_config(cls, cfg, is_train=False):
-        augs = build_augmentation(cfg)
+        augs = []
 
         dataset_names = cfg.DATASETS.TEST
         meta = MetadataCatalog.get(dataset_names[0])
@@ -135,14 +128,17 @@ class MaskFormerSingleParsingSemanticTestDatasetMapper:
         aug_input = T.AugInput(image, sem_seg=sem_seg_gt)
         aug_input, transforms = T.apply_transform_gens(self.tfm_gens, aug_input)
         image, sem_seg_gt = aug_input.image, aug_input.sem_seg
-        image, sem_seg_gt = center_to_target_size(image, sem_seg_gt, self.test_size)
+        # image, sem_seg_gt = center_to_target_size_semseg(image, sem_seg_gt, self.test_size)
         # image, sem_seg_gt = affine_to_target_size(image, sem_seg_gt, self.test_size)
-
+        image, crop_box = center_to_target_size_test(image, self.test_size)
+        
         # image_shape = image.shape[:2]  # h, w
         # Pytorch's dataloader is efficient on torch.Tensor due to shared-memory,
         # but not efficient on large generic data structures due to the use of pickle & mp.Queue.
         # Therefore it's important to use torch.Tensor.
         dataset_dict["image"] = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))
+        dataset_dict["crop_box"] = crop_box
+
         if sem_seg_gt is not None:
             dataset_dict["sem_seg"] = torch.as_tensor(sem_seg_gt.astype("long"))
 

@@ -5,7 +5,7 @@ from torch.nn import functional as F
 from detectron2.structures import Instances, ROIMasks
 
 
-def single_parsing_sem_seg_postprocess(result, img_size, output_height, output_width):
+def single_parsing_sem_seg_postprocess(result, img_size, crop_box, output_height, output_width):
     """
     Return semantic segmentation predictions in the original resolution.
 
@@ -24,8 +24,9 @@ def single_parsing_sem_seg_postprocess(result, img_size, output_height, output_w
         semantic segmentation prediction (Tensor): A tensor of the shape
             (C, output_height, output_width) that contains per-pixel soft predictions.
     """
-    result = result[:, : img_size[0], : img_size[1]].expand(1, -1, -1, -1)
-    # result = F.interpolate(
-    #     result, size=(output_height, output_width), mode="bilinear", align_corners=False
-    # )[0]
-    return result[0]
+    result_of_image = result[:, crop_box[1]:crop_box[3], crop_box[0]:crop_box[2]]
+    result = result_of_image[:, : img_size[0], : img_size[1]].expand(1, -1, -1, -1)
+    result = F.interpolate(
+        result, size=(output_height, output_width), mode="bilinear", align_corners=False
+    )[0]
+    return result

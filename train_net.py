@@ -61,7 +61,6 @@ from mask2former import (
     InsSeg2SemSegEvaluator,
     ParsingSemanticSegmentorWithTTA,
     ParsingEvaluator,
-    SingleParsingSemSegEvaluator,
     build_detection_test_loader,
 )
 
@@ -89,22 +88,13 @@ class Trainer(DefaultTrainer):
 
         # semantic segmentation
         if evaluator_type in ["sem_seg", "ade20k_panoptic_seg"]:
-            if "lip" in cfg.DATASETS.TEST[0]:
-                evaluator_list.append(
-                    SingleParsingSemSegEvaluator(
-                        dataset_name,
-                        distributed=True,
-                        output_dir=output_folder,
-                    )
+            evaluator_list.append(
+                SemSegEvaluator(
+                    dataset_name,
+                    distributed=True,
+                    output_dir=output_folder,
                 )
-            else:
-                evaluator_list.append(
-                    SemSegEvaluator(
-                        dataset_name,
-                        distributed=True,
-                        output_dir=output_folder,
-                    )
-                )
+            )
         # instance segmentation
         if evaluator_type == "coco":
             if "cihp" in cfg.DATASETS.TEST[0] or "lip" in cfg.DATASETS.TEST[0]:

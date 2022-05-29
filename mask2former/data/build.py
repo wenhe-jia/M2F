@@ -28,9 +28,8 @@ from detectron2.data.samplers import (
     TrainingSampler,
 )
 
-from .dataset_mappers.mask_former_parsing_semantic_dataset_mapper import MaskFormerParsingSemanticDatasetMapper
-from .dataset_mappers.mask_former_single_parsing_semantic_test_dataset_mapper import \
-    MaskFormerSingleParsingSemanticTestDatasetMapper
+from .dataset_mappers.mask_former_single_parsing_test_dataset_mapper import \
+    MaskFormerSingleParsingTestDatasetMapper
 
 """
 This file contains the default logic to build a dataloader for training or testing.
@@ -294,7 +293,7 @@ def _test_loader_from_config(cfg, dataset_name, mapper=None):
     )
     if mapper is None:
         if "lip" in cfg.DATASETS.TEST[0]:
-            mapper = MaskFormerSingleParsingSemanticTestDatasetMapper(cfg, False)
+            mapper = MaskFormerSingleParsingTestDatasetMapper(cfg, False)
         else:
             mapper = DatasetMapper(cfg, False)
     return {
