@@ -487,7 +487,7 @@ class MaskFormer(nn.Module):
                 continue
             part_instance_res.append(
                 {
-                    "category_id": pred_scores[idx].cpu(),
+                    "category_id": pred_labels[idx].cpu() + 1,
                     "score"      : pred_scores[idx].cpu(),
                     "mask"       : (pred_masks[idx] > 0.).cpu().numpy().astype(np.uint8),
                 }
@@ -525,7 +525,9 @@ class MaskFormer(nn.Module):
         person_scores = person_scores[person_keep_ind]
         person_masks = person_masks[person_keep_ind, :, :]
 
-        semantic_res = self.paste_instance_to_semseg_probs(part_labels, part_scores, part_masks)
+        semantic_res = self.paste_instance_to_semseg_probs(
+            part_labels, part_scores, part_masks, with_human_instance=True
+        )
 
         """
         TODO: maybe make some modification to adapt to TTA
@@ -592,12 +594,18 @@ class MaskFormer(nn.Module):
         return semantic_res, part_instance_res, human_instance_res, human_parsing_res
 
     def paste_instance_to_semseg_probs(self, labels, scores, prob_masks):
+        num_classes = self.sem_seg_head.num_classes - 1 if self.with_human_instance \
+            else self.sem_seg_head.num_classes  # 19 part classes
+
         im_h, im_w = prob_masks.shape[-2:]
         semseg_im = [torch.zeros((im_h, im_w), dtype=torch.float32, device=prob_masks.device) + 1e-6]
-        for cls_ind in range(self.sem_seg_head.num_classes - 1):
-            keep_ind = torch.where(labels == cls_ind + 1)
-            scores_cate = scores[keep_ind]
-            masks_cate = prob_masks[keep_ind].sigmoid()
+        for cls_ind in range(num_classes):
+            if self.with_human_instance:
+                cate_inds = torch.where(labels == cls_ind + 1)
+            else:
+                cate_inds = torch.where(labels == cls_ind)
+            scores_cate = scores[cate_inds]
+            masks_cate = prob_masks[cate_inds].sigmoid()
 
             semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=prob_masks.device)
             _indx = scores_cate.argsort()
