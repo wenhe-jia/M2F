@@ -153,7 +153,7 @@ class ParsingSemanticSegmentorWithTTA(nn.Module):
         for input, tfm in zip(augmented_inputs, tfms):
             count_predictions += 1
             with torch.no_grad():
-                if final_predictions is None:
+                if final_semantic_predictions is None:
                     if any(isinstance(t, HFlipTransform) for t in tfm.transforms):
                         flipped_semantic_predictions = self.model([input])[0].pop("parsing")['semseg_outputs']
                         final_semantic_predictions = self.flip_parsing_semantic_back(flipped_semantic_predictions)

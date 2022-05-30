@@ -263,7 +263,7 @@ class MaskFormer(nn.Module):
                     """
                     TOD: maybe add single parsing postprocess
                     """
-                    if self.parsing_on and not self.multi_person_parsing:
+                    if self.parsing_on and not self.multi_human_parsing:
                         mask_pred_result = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(
                             mask_pred_result, image_size, input_per_image["crop_box"], height, width
                         )
@@ -281,7 +281,7 @@ class MaskFormer(nn.Module):
                             r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height, width)
                             processed_results[-1]["sem_seg"] = r
                         else:
-                            if self.multi_person_parsing:
+                            if self.multi_human_parsing:
                                 r = retry_if_cuda_oom(sem_seg_postprocess)(r, image_size, height, width)
                             else:
                                 r = retry_if_cuda_oom(single_parsing_sem_seg_postprocess)(
@@ -485,7 +485,7 @@ class MaskFormer(nn.Module):
         for idx in range(pred_labels.shape[0]):
             if pred_scores[idx] < 0.1:
                 continue
-            insseg_res.append(
+            part_instance_res.append(
                 {
                     "category_id": pred_scores[idx].cpu(),
                     "score"      : pred_scores[idx].cpu(),

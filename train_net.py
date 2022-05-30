@@ -89,7 +89,7 @@ class Trainer(DefaultTrainer):
             if evaluator_type == "sem_seg":
                 parsing_metrics = ("mIoU")
             elif evaluator_type == "coco":
-                if not cfg.MODEL.MASK_FORMER.TEST.PARSING.WITH_HUMAN:
+                if not cfg.MODEL.MASK_FORMER.TEST.PARSING.WITH_HUMAN_INSTANCE:
                     parsing_metrics = ("mIoU", "APr")
                 else:
                     parsing_metrics = ("mIoU", "APr", "APh", "APp")

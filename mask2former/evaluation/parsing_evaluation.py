@@ -138,7 +138,7 @@ class ParsingEvaluator(DatasetEvaluator):
         output_dict = outputs[-1]['parsing']
 
         self._semseg_predictions.append(
-            {inputs[0]["file_name"].split('/')[-1]: csr_matrix(output_dict["semseg_outputs"].argmax(dim=0).numpy())}
+            {inputs[0]["file_name"].split('/')[-1]: csr_matrix(output_dict["semseg_outputs"].argmax(dim=0).cpu().numpy())}
         )
 
         for parsing_output in output_dict["parsing_outputs"]:

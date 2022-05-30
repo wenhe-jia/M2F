@@ -49,7 +49,6 @@ class MaskFormerSingleParsingTestDatasetMapper:
         *,
         augmentations,
         image_format,
-        ignore_label,
         test_size,
         size_divisibility,
         parsing_flip_map,
@@ -76,7 +75,6 @@ class MaskFormerSingleParsingTestDatasetMapper:
         self.is_train = is_train
         self.tfm_gens = augmentations
         self.image_format = image_format
-        self.ignore_label = ignore_label
         self.test_size = test_size
         self.size_divisibility = size_divisibility
         self.parsing_flip_map = parsing_flip_map
@@ -97,7 +95,6 @@ class MaskFormerSingleParsingTestDatasetMapper:
             "is_train": is_train,
             "augmentations": augs,
             "image_format": cfg.INPUT.FORMAT,
-            "ignore_label": meta.ignore_label,
             "test_size": cfg.INPUT.SINGLE_PARSING.SCALES[0],
             "size_divisibility": cfg.INPUT.SIZE_DIVISIBILITY,  # -1
             "parsing_flip_map": meta.flip_map

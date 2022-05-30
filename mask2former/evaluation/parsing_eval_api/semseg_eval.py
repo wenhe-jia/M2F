@@ -45,11 +45,6 @@ class SemSegEvaluator(object):
     def fast_hist(self, a, b):
         # print('gt & pre shape: ', a.shape, b.shape)
         k = (a >= 0) & (a < self.num_classes)
-        # print(np.unique(k))
-        # print(np.unique(self.num_classes * a[k].astype(int)), np.unique(self.num_classes * a[k].astype(int) + b[k]))
-        # print('bincount: ', np.bincount(
-        #     self.num_classes * a[k].astype(int) + b[k], minlength=self.num_classes ** 2
-        # ).shape)
         return np.bincount(
             self.num_classes * a[k].astype(int) + b[k], minlength=self.num_classes ** 2
         ).reshape(self.num_classes, self.num_classes)
@@ -91,7 +86,7 @@ class SemSegEvaluator(object):
                 continue
             pre_png = semseg_res[0][image_name.replace('png', 'jpg')].toarray()
             gt_png = self.generate_gt_png(i, image_name, pre_png.shape)
-
+            
             assert gt_png.shape == pre_png.shape, '{} VS {}'.format(str(gt_png.shape), str(pre_png.shape))
             gt = gt_png.flatten()
             pre = pre_png.flatten()
