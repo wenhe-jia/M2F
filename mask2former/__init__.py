@@ -35,7 +35,7 @@ from .data.build import build_detection_test_loader
 
 # models
 from .maskformer_model import MaskFormer
-from .test_time_augmentation import SemanticSegmentorWithTTA, ParsingSemanticSegmentorWithTTA
+from .test_time_augmentation import SemanticSegmentorWithTTA, ParsingWithTTA
 
 # evaluation
 from .evaluation.instance_evaluation import InstanceSegEvaluator
