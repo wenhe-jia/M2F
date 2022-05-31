@@ -525,9 +525,7 @@ class MaskFormer(nn.Module):
         person_scores = person_scores[person_keep_ind]
         person_masks = person_masks[person_keep_ind, :, :]
 
-        semantic_res = self.paste_instance_to_semseg_probs(
-            part_labels, part_scores, part_masks, with_human_instance=True
-        )
+        semantic_res = self.paste_instance_to_semseg_probs(part_labels, part_scores, part_masks)
 
         """
         TODO: maybe make some modification to adapt to TTA
