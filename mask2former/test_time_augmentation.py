@@ -83,7 +83,7 @@ class SingleParsingDatasetMapperTTA:
         return ret
 
 
-class ParsingSemanticSegmentorWithTTA(nn.Module):
+class ParsingWithTTA(nn.Module):
     """
     A SemanticSegmentor with test-time augmentation enabled.
     Its :meth:`__call__` method has the same interface as :meth:`SemanticSegmentor.forward`.

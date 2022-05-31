@@ -653,7 +653,7 @@ class MaskFormer(nn.Module):
                 # for part_ind in range(len(keep_ind)):
                 #     part_mask = masks_cate[part_ind]
                 #
-                #     paste_map  = torch.where(part_mask > 0.5, paste_map + 1, paste_map)
+                #     paste_map[torch.where(part_mask > 0.5)] += 1
                 #     semseg_cate = torch.where(part_mask > 0.5, part_mask + semseg_cate, semseg_cate)
                 #     semseg_cate /= paste_map
 

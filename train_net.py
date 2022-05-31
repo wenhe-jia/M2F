@@ -58,7 +58,7 @@ from mask2former import (
     add_maskformer2_config,
     MaskFormerParsingSemanticDatasetMapper,
     MaskFormerParsingInstanceDatasetMapper,
-    ParsingSemanticSegmentorWithTTA,
+    ParsingWithTTA,
     ParsingEvaluator,
     build_detection_test_loader,
 )
@@ -307,7 +307,7 @@ class Trainer(DefaultTrainer):
         # In the end of training, run an evaluation with TTA.
         logger.info("Running inference with test-time augmentation ...")
         if cfg.MODEL.MASK_FORMER.TEST.PARSING.PARSING_ON:
-            model = ParsingSemanticSegmentorWithTTA(cfg, model)
+            model = ParsingWithTTA(cfg, model)
         else:
             model = SemanticSegmentorWithTTA(cfg, model)
         evaluators = [
