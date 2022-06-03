@@ -49,7 +49,6 @@ MODEL:
 SOLVER:
   IMS_PER_BATCH: 64  # 16
   BASE_LR: 0.0004  # 0.0001
-  # STEPS: (53000, 63000)  # (210000, 250000)
   MAX_ITER: 68000  # 270000  # 150ep, 3x for coco
   LR_SCHEDULER_NAME: "WarmupPolyLR"
 INPUT:
@@ -59,17 +58,9 @@ INPUT:
     ROTATION: True
     ROT_FACTOR: 40
 TEST:
-  EVAL_PERIOD: 2000
+  EVAL_PERIOD: 10000
   AUG:
     ENABLED: False
     MIN_SIZES: [ 384 ]
     MAX_SIZE: 1400
     FLIP: True
-
-# 702:
-# 672：62.23,
-# 640: 62.27, h_flip: 62.91
-# 608: 62.14, h_flip: 62.92
-# 576: 61.78
-# 544: 61.68
-# 512: 61.43

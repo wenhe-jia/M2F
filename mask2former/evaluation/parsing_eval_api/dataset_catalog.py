@@ -191,6 +191,36 @@ COMMON_DATASETS = {
             },
         },
     },
+    "lip_instance_val": {
+        _IM_DIR: _DATA_DIR + '/LIP/Validation/Images',
+        _ANN_FN: _DATA_DIR + '/LIP/annotations/LIP_val.json',
+        _ANN_TYPES: ('bbox', 'mask', 'parsing', 'semseg'),
+        _ANN_FIELDS: {
+            'num_images': 10000,
+            'bbox': {
+                'num_classes': 1,  # only person
+                'num_instances': 10000,
+            },
+            'mask': {
+                'num_classes': 1,  # only person
+                'num_instances': 10000,
+            },
+            'parsing': {
+                'num_classes': 20,
+                'num_instances': -1,  # no statistics
+                'flip_map': ((14, 15), (16, 17), (18, 19)),
+            },
+            'semseg': {
+                'num_classes': 20,
+                'num_instances': -1,  # no statistics
+                'seg_root': _DATA_DIR + '/LIP/Validation/Category_ids',
+                'flip_map': ((14, 15), (16, 17), (18, 19)),
+                'ignore_label': 255,
+                'label_shift': 0,
+                'semseg_format': 'mask',
+            },
+        },
+    },
     'CIHP_test': {
         _IM_DIR: _DATA_DIR + '/CIHP/Testing/Images',
         _ANN_FN: _DATA_DIR + '/CIHP/annotations/CIHP_test.json',

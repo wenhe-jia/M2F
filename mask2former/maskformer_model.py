@@ -476,24 +476,38 @@ class MaskFormer(nn.Module):
         pred_labels = labels_per_image
         pred_masks = mask_pred
 
-        semantic_res = self.paste_instance_to_semseg_probs(pred_labels, pred_scores, pred_masks)
+        if not self.multi_human_parsing:  # for temporal usage
+            semantic_res = self.paste_instance_to_semseg_probs_withbkg(pred_labels, pred_scores, pred_masks)
+        else:
+            semantic_res = self.paste_instance_to_semseg_probs(pred_labels, pred_scores, pred_masks)
 
         """
         TODO: maybe make some modification to adapt to TTA
         """
         part_instance_res = []
         for idx in range(pred_labels.shape[0]):
-            if pred_scores[idx] < 0.1:
-                continue
-            part_instance_res.append(
-                {
-                    "category_id": pred_labels[idx].cpu() + 1,
-                    "score"      : pred_scores[idx].cpu(),
-                    "mask"       : (pred_masks[idx] > 0.).cpu().numpy().astype(np.uint8),
-                }
-            )
+            if not self.multi_human_parsing:
+                if pred_labels[idx] == 0 or pred_scores[idx] < 0.1:
+                    continue
+                part_instance_res.append(
+                    {
+                        "category_id": pred_labels[idx].cpu(),
+                        "score": pred_scores[idx].cpu(),
+                        "mask": (pred_masks[idx] > 0.).cpu().numpy().astype(np.uint8),
+                    }
+                )
+            else:
+                if pred_scores[idx] < 0.1:
+                    continue
+                part_instance_res.append(
+                    {
+                        "category_id": pred_labels[idx].cpu() + 1,
+                        "score"      : pred_scores[idx].cpu(),
+                        "mask"       : (pred_masks[idx] > 0.).cpu().numpy().astype(np.uint8),
+                    }
+                )
 
-        return semantic_res, part_instance_res
+        return semantic_res, []
 
     def parsing_instance_inference_with_human(self, mask_cls, mask_pred):
         scores = F.softmax(mask_cls, dim=-1)[:, :-1]
@@ -602,6 +616,28 @@ class MaskFormer(nn.Module):
                 cate_inds = torch.where(labels == cls_ind + 1)
             else:
                 cate_inds = torch.where(labels == cls_ind)
+            scores_cate = scores[cate_inds]
+            masks_cate = prob_masks[cate_inds].sigmoid()
+
+            semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=prob_masks.device)
+            _indx = scores_cate.argsort()
+            for k in range(len(_indx)):
+                if scores_cate[_indx[k]] < self.parsing_ins_score_thr:
+                    continue
+                _ins_mask = masks_cate[_indx[k]] * scores_cate[_indx[k]]
+                semseg_cate = torch.where(_ins_mask > 0.5, _ins_mask + semseg_cate, semseg_cate)
+
+            semseg_im.append(semseg_cate)
+
+        return torch.stack(semseg_im, dim=0).cpu()
+
+    def paste_instance_to_semseg_probs_withbkg(self, labels, scores, prob_masks):
+        # for temporal usage, paste instances (including bkg instances) to semseg probs for single human parsing
+        num_classes = self.sem_seg_head.num_classes  # background + 19 part classes
+        im_h, im_w = prob_masks.shape[-2:]
+        semseg_im = []
+        for cls_ind in range(num_classes):
+            cate_inds = torch.where(labels == cls_ind)
             scores_cate = scores[cate_inds]
             masks_cate = prob_masks[cate_inds].sigmoid()
 

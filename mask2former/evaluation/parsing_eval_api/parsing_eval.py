@@ -515,54 +515,54 @@ class ParsingEval(object):
             APp = self.stats['APp']
             PCP = self.stats['PCP']
             mAPp = np.nanmean(np.array(list(APp.values())))
-            print('~~~~ Summary metrics ~~~~')
-            print(
+            self._logger.info('~~~~ Summary metrics ~~~~')
+            self._logger.info(
                 ' Average Precision based on part (APp)               @[mIoU=0.10:0.90 ] = {:.3f}'.format(mAPp))
-            print(
+            self._logger.info(
                 ' Average Precision based on part (APp)               @[mIoU=0.10      ] = {:.3f}'.format(APp[0.1]))
-            print(
+            self._logger.info(
                 ' Average Precision based on part (APp)               @[mIoU=0.30      ] = {:.3f}'.format(APp[0.3]))
-            print(
+            self._logger.info(
                 ' Average Precision based on part (APp)               @[mIoU=0.50      ] = {:.3f}'.format(APp[0.5]))
-            print(
+            self._logger.info(
                 ' Average Precision based on part (APp)               @[mIoU=0.60      ] = {:.3f}'.format(APp[0.6]))
-            print(
+            self._logger.info(
                 ' Average Precision based on part (APp)               @[mIoU=0.70      ] = {:.3f}'.format(APp[0.7]))
-            print(
+            self._logger.info(
                 ' Average Precision based on part (APp)               @[mIoU=0.90      ] = {:.3f}'.format(APp[0.9]))
-            print(
+            self._logger.info(
                 ' Percentage of Correctly parsed semantic Parts (PCP) @[mIoU=0.50      ] = {:.3f}'.format(PCP[0.5]))
-            print('=' * 80)
+            self._logger.info('=' * 80)
 
         if 'APr' in self.metrics or 'ap^r' in self.metrics:
             APr = self.stats['APr']
             mAPr = np.nanmean(np.array(list(APr.values())))
-            print('~~~~ Summary metrics ~~~~')
-            print(
+            self._logger.info('~~~~ Summary metrics ~~~~')
+            self._logger.info(
                 ' Average Precision based on region (APr)             @[mIoU=0.10:0.90 ] = {:.3f}'.format(mAPr))
-            print(
+            self._logger.info(
                 ' Average Precision based on region (APr)             @[mIoU=0.10      ] = {:.3f}'.format(APr[0.1]))
-            print(
+            self._logger.info(
                 ' Average Precision based on region (APr)             @[mIoU=0.30      ] = {:.3f}'.format(APr[0.3]))
-            print(
+            self._logger.info(
                 ' Average Precision based on region (APr)             @[mIoU=0.50      ] = {:.3f}'.format(APr[0.5]))
-            print(
+            self._logger.info(
                 ' Average Precision based on region (APr)             @[mIoU=0.70      ] = {:.3f}'.format(APr[0.7]))
-            print(
+            self._logger.info(
                 ' Average Precision based on region (APr)             @[mIoU=0.90      ] = {:.3f}'.format(APr[0.9]))
-            print('=' * 80)
+            self._logger.info('=' * 80)
 
         if 'APh' in self.metrics or 'ap^h' in self.metrics:
             APh = self.stats['APh']
             mAPh = np.nanmean(np.array(list(APh.values())))
-            print('~~~~ Summary metrics ~~~~')
-            print(
+            self._logger.info('~~~~ Summary metrics ~~~~')
+            self._logger.info(
                 ' Average Precision based on human (APh)             @[mIoU=0.50:0.95 ] = {:.3f}'.format(mAPh))
-            print(
+            self._logger.info(
                 ' Average Precision based on human (APh)             @[mIoU=0.50      ] = {:.3f}'.format(APh[0.5]))
-            print(
+            self._logger.info(
                 ' Average Precision based on human (APh)             @[mIoU=0.75      ] = {:.3f}'.format(APh[0.75]))
-            print('=' * 80)
+            self._logger.info('=' * 80)
 
 
 class Params:

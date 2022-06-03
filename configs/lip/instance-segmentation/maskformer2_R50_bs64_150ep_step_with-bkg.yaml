@@ -4,7 +4,7 @@ MODEL:
   SEM_SEG_HEAD:
     NAME: "MaskFormerHead"
     IGNORE_VALUE: 255
-    NUM_CLASSES: 19
+    NUM_CLASSES: 20
     LOSS_WEIGHT: 1.0
     CONVS_DIM: 256
     MASK_DIM: 256
@@ -46,11 +46,14 @@ MODEL:
         PARSING_ON: True
         MULTI_HUMAN_PARSING: False
         PARSING_INS_SCORE_THR: 0.3
+DATASETS:
+  TRAIN: ("lip_instance_train",)
+  TEST: ("lip_instance_val",)
 SOLVER:
-  IMS_PER_BATCH: 128  # 16
-  BASE_LR: 0.0008  # 0.0001
-  STEPS: (26500, 31500)  # (210000, 250000)
-  MAX_ITER: 34000  # 270000  # 150ep, 3x for coco
+  IMS_PER_BATCH: 64  # 16
+  BASE_LR: 0.0004  # 0.0001
+  STEPS: (55000, 63000)  # (210000, 250000)
+  MAX_ITER: 70000  # 270000  # 150ep, 3x for coco
 INPUT:
   SINGLE_PARSING:
     SCALES: ([384, 512],)
@@ -58,7 +61,7 @@ INPUT:
     ROTATION: True
     ROT_FACTOR: 40
 TEST:
-  EVAL_PERIOD: 2000
+  EVAL_PERIOD: 30000
   AUG:
     ENABLED: False
     MIN_SIZES: [ 384 ]

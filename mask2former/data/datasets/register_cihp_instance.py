@@ -11,16 +11,16 @@ from detectron2.utils.file_io import PathManager
 
 CIHP_INSSEG_CATEGORIES = [
     # {'id': 0, 'name': 'background'},
-    {'id': 1, 'name': 'Hat'},
-    {'id': 2, 'name': 'Hair'}, {'id': 3, 'name': 'Gloves'},
-    {'id': 4, 'name': 'Sunglasses'}, {'id': 5, 'name': 'UpperClothes'},
-    {'id': 6, 'name': 'Dress'}, {'id': 7, 'name': 'Coat'},
-    {'id': 8, 'name': 'Socks'}, {'id': 9, 'name': 'Pants'},
-    {'id': 10, 'name': 'Torso-skin'}, {'id': 11, 'name': 'Scarf'},
-    {'id': 12, 'name': 'Skirt'}, {'id': 13, 'name': 'Face'},
-    {'id': 14, 'name': 'Left-arm'}, {'id': 15, 'name': 'Right-arm'},
-    {'id': 16, 'name': 'Left-leg'}, {'id': 17, 'name': 'Right-leg'},
-    {'id': 18, 'name': 'Left-shoe'}, {'id': 19, 'name': 'Right-shoe'},
+    {'id': 1,  'name': 'Hat'},
+    {'id': 2,  'name': 'Hair'},        {'id': 3,  'name': 'Gloves'},
+    {'id': 4,  'name': 'Sunglasses'},  {'id': 5,  'name': 'UpperClothes'},
+    {'id': 6,  'name': 'Dress'},       {'id': 7,  'name': 'Coat'},
+    {'id': 8,  'name': 'Socks'},       {'id': 9,  'name': 'Pants'},
+    {'id': 10, 'name': 'Torso-skin'},  {'id': 11, 'name': 'Scarf'},
+    {'id': 12, 'name': 'Skirt'},       {'id': 13, 'name': 'Face'},
+    {'id': 14, 'name': 'Left-arm'},    {'id': 15, 'name': 'Right-arm'},
+    {'id': 16, 'name': 'Left-leg'},    {'id': 17, 'name': 'Right-leg'},
+    {'id': 18, 'name': 'Left-shoe'},   {'id': 19, 'name': 'Right-shoe'},
 ]
 
 CIHP_FLIP_MAP = ((14, 15), (16, 17), (18, 19))
