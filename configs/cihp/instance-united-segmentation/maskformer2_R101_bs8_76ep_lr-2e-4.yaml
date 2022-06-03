@@ -32,6 +32,6 @@ TEST:
   EVAL_PERIOD: 30000
   AUG:
     ENABLED: True
-    MIN_SIZES: (640,)
+    MIN_SIZES: (800,)
     MAX_SIZE: 1400
     FLIP: True
