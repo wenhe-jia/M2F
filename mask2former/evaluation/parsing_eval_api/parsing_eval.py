@@ -1,4 +1,6 @@
 import copy, logging
+import time
+
 import cv2
 import glob
 import numpy as np
@@ -10,7 +12,6 @@ from tqdm import tqdm, trange
 from .semseg_eval import SemSegEvaluator
 from .utils import get_parsing
 
-
 warnings.filterwarnings("ignore")
 
 
@@ -20,17 +21,17 @@ class ParsingEval(object):
     """
 
     def __init__(self,
-        parsingGt=None,
-        semsegPred=None,
-        parsingPred=None,
-        partPred=None,
-        humanPred=None,
-        gt_dir=None,
-        pred_dir=None,
-        score_thresh=0.001,
-        num_parsing=20,
-        metrics=('mIoU', 'APp', 'APr')
-    ):
+                 parsingGt=None,
+                 semsegPred=None,
+                 parsingPred=None,
+                 partPred=None,
+                 humanPred=None,
+                 gt_dir=None,
+                 pred_dir=None,
+                 score_thresh=0.001,
+                 num_parsing=20,
+                 metrics=('mIoU', 'APp', 'APr')
+                 ):
 
         """
         Initialize ParsingEvaluator
@@ -40,11 +41,11 @@ class ParsingEval(object):
         """
         self.parsingGt = parsingGt
 
-        self.semsegPred  = semsegPred
+        self.semsegPred = semsegPred
         self.parsingPred = parsingPred
-        self.partPred    = partPred
-        self.humanPred   = humanPred
-        
+        self.partPred = partPred
+        self.humanPred = humanPred
+
         self.params = {}  # evaluation parameters
         self.params = Params(iouType='iou')  # parameters
         self.par_thresholds = self.params.pariouThrs
@@ -244,12 +245,28 @@ class ParsingEval(object):
         true_pos = []
         false_pos = []
         scores = []
+        t0_tmp = 0
+        t1_tmp = 0
+        t2_tmp = 0
 
         for i in range(num_IoU_TH):
             true_pos.append([])
             false_pos.append([])
 
+        part_img_cat_dict = {}
+        for pred_im in self.partPred:
+            if pred_im["img_name"] not in part_img_cat_dict:
+                part_img_cat_dict[pred_im["img_name"]] = {}
+            if int(pred_im['category_id']) not in part_img_cat_dict[pred_im["img_name"]]:
+                part_img_cat_dict[pred_im["img_name"]][int(pred_im['category_id'])] = []
+            part_img_cat_dict[pred_im["img_name"]][int(pred_im['category_id'])].append(pred_im)
+            # print(part_img_cat_dict[pred_im["img_name"]][int(pred_im['category_id'])])
+
+        # partPred_im = [x for x in self.partPred if x["img_name"] == img_name]
+        # partPred_cls = [x for x in partPred_im if x["category_id"] == class_id]
+
         for img_name in tqdm(img_name_list, desc='Calculating class: {}..'.format(class_id)):
+            t0 = time.time()
             instance_img_gt = Image.open(os.path.join(instance_par_gt_dir, img_name + '.png'))
             instance_img_gt = np.array(instance_img_gt)
 
@@ -266,18 +283,25 @@ class ParsingEval(object):
                     gt_id.append(int(line[0]))
             rfp.close()
 
-            partPred_im = [x for x in self.partPred if x["img_name"] == img_name]
-            partPred_cls = [x for x in partPred_im if x["category_id"] == class_id]
-
+            t00 = time.time()
+            try:
+                partPred_cls = part_img_cat_dict[img_name][class_id]
+            except:
+                partPred_cls = []
+            # partPred_im = [x for x in self.partPred if x["img_name"] == img_name]
+            # partPred_cls = [x for x in partPred_im if x["category_id"] == class_id]
             pred_masks = [x["mask"].toarray().astype(np.uint8) for x in partPred_cls]
             pred_scores = [float(x["score"]) for x in partPred_cls]
-            num_pred_instance = len(partPred_cls)     
+            num_pred_instance = len(partPred_cls)
+            t01 = time.time()
+            t2_tmp += t01 - t00
 
             # Mask for specified class, i.e., *class_id*
             gt_masks, num_gt_instance = self._split_masks(instance_img_gt, set(gt_id))
             num_gt_masks += num_gt_instance
             num_pred_masks += num_pred_instance
             if num_pred_instance == 0:
+                t0_tmp += time.time() - t0
                 continue
 
             # Collect scores from all the test images that
@@ -291,6 +315,7 @@ class ParsingEval(object):
                         true_pos[k].append(0)
                 continue
 
+            t1 = time.time()
             gt_masks = np.stack(gt_masks)
             pred_masks = np.stack(pred_masks)
             # Compute IoU overlaps [pred_masks, gt_makss]
@@ -307,6 +332,16 @@ class ParsingEval(object):
                     else:
                         true_pos[k].append(0)
                         false_pos[k].append(1)
+
+            t2 = time.time()
+            t0_tmp += t1 - t0
+            t1_tmp += t2 - t1
+
+        print('\n--num_pred_masks', num_pred_masks)
+        print('+++get_masks:', t0_tmp)
+        print('+++get_pred_mask:', t2_tmp)
+        print('+++compute_iou:', t1_tmp)
+        print('--num_gt_masks', num_gt_masks)
 
         ind = np.argsort(scores)[::-1]
         for k in range(num_IoU_TH):
@@ -404,8 +439,8 @@ class ParsingEval(object):
         assert os.path.exists(instance_par_gt_dir)
 
         tmp_instance_par_gt_dir = instance_par_gt_dir
-        img_name_list =  [x.split("/")[-1].split(".")[0] for x in
-                             glob.glob(tmp_instance_par_gt_dir+ '/*') if x[-3:] == 'txt']
+        img_name_list = [x.split("/")[-1].split(".")[0] for x in
+                         glob.glob(tmp_instance_par_gt_dir + '/*') if x[-3:] == 'txt']
 
         APr = np.zeros((self.num_parsing - 1, len(self.par_thresholds)))
         with tqdm(total=self.num_parsing - 1) as pbar:
@@ -439,7 +474,7 @@ class ParsingEval(object):
             fp.append([])
 
         tmp_instance_seg_gt_dir = instance_seg_gt_dir
-        img_name_list =  [x.split("/")[-1].split(".")[0] for x in glob.glob(tmp_instance_seg_gt_dir+ '/*')]
+        img_name_list = [x.split("/")[-1].split(".")[0] for x in glob.glob(tmp_instance_seg_gt_dir + '/*')]
 
         for img_name in tqdm(img_name_list, desc='Calculating APh..'):
             gt_mask = cv2.imread(os.path.join(instance_seg_gt_dir, img_name + '.png'), 0)
@@ -448,7 +483,7 @@ class ParsingEval(object):
             humanPred_im = [x for x in self.humanPred if x["img_name"] == img_name]
             pre_mask = [x["mask"].toarray().astype(np.uint8) for x in humanPred_im]
             tmp_scores = [float(x["score"]) for x in humanPred_im]
-            n_pre_inst = len(humanPred_im)    
+            n_pre_inst = len(humanPred_im)
 
             gt_mask_num += n_gt_inst
             pre_mask_num += n_pre_inst
@@ -643,7 +678,8 @@ def generate_parsing_result(parsings, instance_scores, part_scores, bbox_scores=
         if bbox_scores[s_id] < semseg_thresh:
             continue
         cur_parsing = parsings[s_id]  # single person parsing label map
-        global_parsing = np.where(cur_parsing > 0, cur_parsing, global_parsing)  # get part semseg label map for single image
+        global_parsing = np.where(cur_parsing > 0, cur_parsing,
+                                  global_parsing)  # get part semseg label map for single image
 
     # parsing nms
     if parsing_nms_thres < 1.0:
@@ -660,7 +696,8 @@ def generate_parsing_result(parsings, instance_scores, part_scores, bbox_scores=
         if instance_scores[s_id] < score_thresh:
             continue
         cur_parsing = parsings[s_id]  # single person parsing label map
-        global_for_ins = np.where(cur_parsing > 0, cur_parsing, global_for_ins)  # get semseg label map for single image at image scene
+        global_for_ins = np.where(cur_parsing > 0, cur_parsing,
+                                  global_for_ins)  # get semseg label map for single image at image scene
         ins_semseg = np.where(cur_parsing > 0, ins_id, ins_semseg)  # get person instance map
         cur_bbox = cv2.boundingRect(cur_parsing.copy())
         x, y, w, h = cur_bbox
@@ -674,7 +711,8 @@ def generate_parsing_result(parsings, instance_scores, part_scores, bbox_scores=
     ins_ids = np.delete(ins_ids, bg_id_index)
     total_part_num = 0
     for idx in ins_ids:
-        part_label = (np.where(ins_semseg == idx, 1, 0) * global_for_ins).astype(np.uint8)  # get single person parsing map at image scene
+        part_label = (np.where(ins_semseg == idx, 1, 0) * global_for_ins).astype(
+            np.uint8)  # get single person parsing map at image scene
         part_classes = np.unique(part_label)
         for part_id in part_classes:
             if part_id == 0:
