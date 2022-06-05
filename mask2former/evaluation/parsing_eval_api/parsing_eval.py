@@ -20,18 +20,19 @@ class ParsingEval(object):
     Evaluate parsing
     """
 
-    def __init__(self,
-                 parsingGt=None,
-                 semsegPred=None,
-                 parsingPred=None,
-                 partPred=None,
-                 humanPred=None,
-                 gt_dir=None,
-                 pred_dir=None,
-                 score_thresh=0.001,
-                 num_parsing=20,
-                 metrics=('mIoU', 'APp', 'APr')
-                 ):
+    def __init__(
+            self,
+            parsingGt = None,
+            semsegPred = None,
+            parsingPred = None,
+            partPred = None,
+            humanPred = None,
+            gt_dir = None,
+            pred_dir = None,
+            score_thresh = 0.001,
+            num_parsing = 20,
+            metrics = ('mIoU', 'APp', 'APr')
+    ):
 
         """
         Initialize ParsingEvaluator
@@ -58,7 +59,6 @@ class ParsingEval(object):
         self.stats = dict()  # result summarization
         self._logger = logging.getLogger(__name__)
 
-        #
         if 'mIoU' in self.metrics or 'miou' in self.metrics:
             # self.global_parsing_dir = os.path.join(self.pred_dir, 'global_parsing')
             # assert os.path.exists(self.global_parsing_dir)
@@ -245,9 +245,6 @@ class ParsingEval(object):
         true_pos = []
         false_pos = []
         scores = []
-        t0_tmp = 0
-        t1_tmp = 0
-        t2_tmp = 0
 
         for i in range(num_IoU_TH):
             true_pos.append([])
@@ -260,13 +257,8 @@ class ParsingEval(object):
             if int(pred_im['category_id']) not in part_img_cat_dict[pred_im["img_name"]]:
                 part_img_cat_dict[pred_im["img_name"]][int(pred_im['category_id'])] = []
             part_img_cat_dict[pred_im["img_name"]][int(pred_im['category_id'])].append(pred_im)
-            # print(part_img_cat_dict[pred_im["img_name"]][int(pred_im['category_id'])])
-
-        # partPred_im = [x for x in self.partPred if x["img_name"] == img_name]
-        # partPred_cls = [x for x in partPred_im if x["category_id"] == class_id]
 
         for img_name in tqdm(img_name_list, desc='Calculating class: {}..'.format(class_id)):
-            t0 = time.time()
             instance_img_gt = Image.open(os.path.join(instance_par_gt_dir, img_name + '.png'))
             instance_img_gt = np.array(instance_img_gt)
 
@@ -283,25 +275,20 @@ class ParsingEval(object):
                     gt_id.append(int(line[0]))
             rfp.close()
 
-            t00 = time.time()
             try:
                 partPred_cls = part_img_cat_dict[img_name][class_id]
             except:
                 partPred_cls = []
-            # partPred_im = [x for x in self.partPred if x["img_name"] == img_name]
-            # partPred_cls = [x for x in partPred_im if x["category_id"] == class_id]
+
             pred_masks = [x["mask"].toarray().astype(np.uint8) for x in partPred_cls]
             pred_scores = [float(x["score"]) for x in partPred_cls]
             num_pred_instance = len(partPred_cls)
-            t01 = time.time()
-            t2_tmp += t01 - t00
 
             # Mask for specified class, i.e., *class_id*
             gt_masks, num_gt_instance = self._split_masks(instance_img_gt, set(gt_id))
             num_gt_masks += num_gt_instance
             num_pred_masks += num_pred_instance
             if num_pred_instance == 0:
-                t0_tmp += time.time() - t0
                 continue
 
             # Collect scores from all the test images that
@@ -315,7 +302,6 @@ class ParsingEval(object):
                         true_pos[k].append(0)
                 continue
 
-            t1 = time.time()
             gt_masks = np.stack(gt_masks)
             pred_masks = np.stack(pred_masks)
             # Compute IoU overlaps [pred_masks, gt_makss]
@@ -332,16 +318,6 @@ class ParsingEval(object):
                     else:
                         true_pos[k].append(0)
                         false_pos[k].append(1)
-
-            t2 = time.time()
-            t0_tmp += t1 - t0
-            t1_tmp += t2 - t1
-
-        print('\n--num_pred_masks', num_pred_masks)
-        print('+++get_masks:', t0_tmp)
-        print('+++get_pred_mask:', t2_tmp)
-        print('+++compute_iou:', t1_tmp)
-        print('--num_gt_masks', num_gt_masks)
 
         ind = np.argsort(scores)[::-1]
         for k in range(num_IoU_TH):
@@ -450,6 +426,7 @@ class ParsingEval(object):
                     instance_par_gt_dir, img_name_list, class_id
                 )
                 pbar.update(1)
+
         # AP under each threshold.
         mAPr = np.nanmean(APr, axis=0)
         all_APr = {}
