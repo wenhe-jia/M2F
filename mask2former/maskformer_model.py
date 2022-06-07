@@ -507,7 +507,7 @@ class MaskFormer(nn.Module):
                     }
                 )
 
-        return semantic_res, []
+        return semantic_res, part_instance_res
 
     def parsing_instance_inference_with_human(self, mask_cls, mask_pred):
         scores = F.softmax(mask_cls, dim=-1)[:, :-1]
