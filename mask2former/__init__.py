@@ -27,7 +27,11 @@ from .data.dataset_mappers.mask_former_parsing_semantic_dataset_mapper import (
 )
 
 from .data.dataset_mappers.mask_former_single_parsing_test_dataset_mapper import (
-    MaskFormerSingleParsingTestDatasetMapper
+    MaskFormerSingleParsingTestDatasetMapper,
+)
+
+from .data.dataset_mappers.mask_former_parsing_instance_lsj_dataset_mapper import (
+    MaskFormerParsingInstanceLSJDatasetMapper,
 )
 
 from .data.build import build_detection_test_loader
