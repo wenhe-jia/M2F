@@ -58,6 +58,7 @@ from mask2former import (
     add_maskformer2_config,
     MaskFormerParsingSemanticDatasetMapper,
     MaskFormerParsingInstanceDatasetMapper,
+    MaskFormerParsingInstanceLSJDatasetMapper,
     ParsingWithTTA,
     ParsingEvaluator,
     build_detection_test_loader,
@@ -194,6 +195,10 @@ class Trainer(DefaultTrainer):
         # parsing instance segmentation dataset mapper
         elif cfg.INPUT.DATASET_MAPPER_NAME == "mask_former_parsing_instance":
             mapper = MaskFormerParsingInstanceDatasetMapper(cfg, True)
+            return build_detection_train_loader(cfg, mapper=mapper)
+        # parsing instance segmentation dataset mapper w.r.t large scale jitter (coco new baseline)
+        elif cfg.INPUT.DATASET_MAPPER_NAME == "mask_former_parsing_instance_lsj":
+            mapper = MaskFormerParsingInstanceLSJDatasetMapper(cfg, True)
             return build_detection_train_loader(cfg, mapper=mapper)
         # parsing semantic segmentation dataset mapper
         elif cfg.INPUT.DATASET_MAPPER_NAME == "mask_former_parsing_semantic":
