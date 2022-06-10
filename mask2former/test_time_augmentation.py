@@ -1,6 +1,8 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 import copy, cv2
 import logging
+import os
+import sys
 from itertools import count
 
 import numpy as np
@@ -16,15 +18,19 @@ from detectron2.data.transforms import (
     RandomFlip,
     apply_augmentations,
 )
+from pycocotools import mask as maskUtils
 from detectron2.config import configurable
 from detectron2.data import MetadataCatalog
+
 from .data.parsing_utils import get_parsing_flip_map
+from .utils.utils import predictions_supress, predictions_merge, parsing_nms
 
 __all__ = [
     "ParsingSemanticSegmentorWithTTA",
     "SingleParsingDatasetMapperTTA",
     "SemanticSegmentorWithTTA",
 ]
+
 
 class SingleParsingDatasetMapperTTA:
     """
@@ -149,35 +155,111 @@ class ParsingWithTTA(nn.Module):
 
         # semantic TTA
         final_semantic_predictions = None
+        all_part_predictions = {}
+        all_human_predictions = {}
+        parsings = []
+        parsing_instance_scores = []
+
         count_predictions = 0
-        for input, tfm in zip(augmented_inputs, tfms):
+        for aug_input, tfm in zip(augmented_inputs, tfms):
             count_predictions += 1
             with torch.no_grad():
+                model_out = self.model([aug_input])[0].pop("parsing")
+
                 if final_semantic_predictions is None:
                     if any(isinstance(t, HFlipTransform) for t in tfm.transforms):
-                        flipped_semantic_predictions = self.model([input])[0].pop("parsing")['semseg_outputs']
-                        final_semantic_predictions = self.flip_parsing_semantic_back(flipped_semantic_predictions)
+                        flipped_semantic_predictions = model_out['semseg_outputs']
+                        flipped_part_predictions = model_out['part_outputs']
+                        flipped_human_predictions = model_out['human_outputs']
+                        flipped_parsing_predictions = model_out['parsing_outputs']
 
+                        parsing_predictions = self.flip_parsings_back(flipped_parsing_predictions)
+                        part_predictions = self.flip_parsing_instance_back(flipped_part_predictions)
+                        human_predictions = self.flip_parsing_instance_back(flipped_human_predictions, 'human')
+                        final_semantic_predictions = self.flip_parsing_semantic_back(flipped_semantic_predictions)
                     else:
-                        final_semantic_predictions = self.model([input])[0].pop("parsing")['semseg_outputs']
+                        final_semantic_predictions = model_out['semseg_outputs']
+                        part_predictions = model_out['part_outputs']
+                        human_predictions = model_out['human_outputs']
+                        parsing_predictions = model_out['parsing_outputs']
                 else:
                     if any(isinstance(t, HFlipTransform) for t in tfm.transforms):
-                        flipped_predictions = self.model([input])[0].pop("parsing")['semseg_outputs']
+                        flipped_predictions = model_out['semseg_outputs']
+                        flipped_part_predictions = model_out['part_outputs']
+                        flipped_human_predictions = model_out['human_outputs']
+                        flipped_parsing_predictions = model_out['parsing_outputs']
+
+                        parsing_predictions = self.flip_parsings_back(flipped_parsing_predictions)
+                        part_predictions = self.flip_parsing_instance_back(flipped_part_predictions)
+                        human_predictions = self.flip_parsing_instance_back(flipped_human_predictions, 'human')
                         final_semantic_predictions += self.flip_parsing_semantic_back(flipped_predictions)
                     else:
-                        final_semantic_predictions += self.model([input])[0].pop("parisng")['semseg_outputs']
-        final_semantic_predictions = final_semantic_predictions / count_predictions
+                        final_semantic_predictions += model_out['semseg_outputs']
+                        part_predictions = model_out['part_outputs']
+                        human_predictions = model_out['human_outputs']
+                        parsing_predictions = model_out['parsing_outputs']
 
-        """
-        TODO: add instance and parsing merge
-        """
+                # store the part and human prediction by category
+                for part_prediction in part_predictions:
+                    if part_prediction['category_id'] not in all_part_predictions:
+                        all_part_predictions[part_prediction['category_id']] = {'masks': [], 'scores': []}
+
+                    all_part_predictions[part_prediction['category_id']]['masks'].append(part_prediction['mask'])
+                    all_part_predictions[part_prediction['category_id']]['scores'].append(part_prediction['score'])
+
+                for human_prediction in human_predictions:
+                    if human_prediction['category_id'] not in all_human_predictions:
+                        all_human_predictions[human_prediction['category_id']] = {'masks': [], 'scores': []}
+
+                    all_human_predictions[human_prediction['category_id']]['masks'].append(human_prediction['mask'])
+                    all_human_predictions[human_prediction['category_id']]['scores'].append(human_prediction['score'])
+
+                # store parsing
+                for parsing_prediction in parsing_predictions:
+                    parsings.append(parsing_prediction['parsing'])
+                    parsing_instance_scores.append(parsing_prediction['instance_score'])
+
+        final_semantic_predictions = final_semantic_predictions / count_predictions
+        final_part_predictions = predictions_supress(all_part_predictions)
+        final_human_predictions = predictions_supress(all_human_predictions)
+        final_parsing_predictions = []
+        final_parsings, final_parsing_instance_scores = parsing_nms(np.array(parsings), np.array(parsing_instance_scores))
+        for final_parsing, final_parsing_instance_score in zip(final_parsings, final_parsing_instance_scores):
+            final_parsing_predictions.append(
+                {
+                    "parsing": final_parsing,
+                    "instance_score": final_parsing_instance_score,
+                }
+            )
+
+        # print(len(model_out['part_outputs']), len(final_part_predictions))
+
+        # # visualize
+        # cat_map = {0: 'Person', 1: 'Hat', 2: 'Hair', 3: 'Gloves', 4: 'Sunglasses', 5: 'UpperClothes', 6: 'Dress',
+        #            7: 'Coat', 8: 'Socks', 9: 'Pants', 10: 'Torso-skin', 11: 'Scarf', 12: 'Skirt', 13: 'Face',
+        #            14: 'Left-arm', 15: 'Right-arm', 16: 'Left-leg', 17: 'Right-leg', 18: 'Left-shoe', 19: 'Right-shoe'}
+        #
+        # path = os.path.join('./vis_out/', 'image_id '+str(input['image_id']))
+        # os.makedirs(path, exist_ok=True)
+        # for i, pred in enumerate(final_part_predictions):
+        #     print(input['image'].numpy().shape)
+        #     img = cv2.resize(input['image'].permute(1, 2, 0).numpy(), (orig_shape[1], orig_shape[0]))
+        #     alpha = 0.5
+        #     color = np.array([0, 255, 0], dtype=np.uint8)
+        #     mask = (pred['mask'] > 0).astype(np.bool)
+        #     print(mask.shape, img.shape)
+        #     img[mask] = img[mask] * (1 - alpha) + alpha * color
+        #     cv2.imwrite(
+        #         os.path.join(path, str(i) + '-' + cat_map[pred['category_id']] + '-' + str(pred['score']) + '.jpg'),
+        #         img)
+        # sys.exit()
 
         return {
             "parsing": {
                 "semseg_outputs": final_semantic_predictions.cpu(),
-                "parsing_outputs": [],
-                "part_outputs": [],
-                "human_outputs": []
+                "parsing_outputs": final_parsing_predictions,
+                "part_outputs": final_part_predictions,
+                "human_outputs": final_human_predictions
             }
         }
 
@@ -199,6 +281,27 @@ class ParsingWithTTA(nn.Module):
             spatial_channel_flipback_predictions[ori_label, :, :] = new_channel
 
         return spatial_channel_flipback_predictions
+
+    def flip_parsing_instance_back(self, predictions, instance_type='part'):
+        for prediction in predictions:
+            prediction['mask'] = prediction['mask'].flip(dims=[1])
+            if instance_type in ['part']:
+                flip_map_dict = {}
+                for (k, v) in self.flip_map:
+                    flip_map_dict.update({k: v, v: k})
+                if prediction['category_id'] in flip_map_dict:
+                    prediction['category_id'] = flip_map_dict[prediction['category_id']]
+        return predictions
+
+    def flip_parsings_back(self, predictions):
+        for prediction in predictions:
+            prediction['parsing'] = prediction['parsing'].flip(dims=[1])
+
+            for r, l in self.flip_map:
+                parsing_tmp = copy.deepcopy(prediction['parsing'])
+                prediction['parsing'][parsing_tmp == r] = l
+                prediction['parsing'][parsing_tmp == l] = r
+        return predictions
 
 
 class SemanticSegmentorWithTTA(nn.Module):

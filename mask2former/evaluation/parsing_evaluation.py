@@ -111,7 +111,7 @@ class ParsingEvaluator(DatasetEvaluator):
             inputs: the inputs to a COCO model (e.g., GeneralizedRCNN).
                 It is a list of dict. Each dict corresponds to an image and
                 contains keys like "height", "width", "file_name", "image_id".
-            outputs: ["parsing": {
+            outputs: [{"parsing": {
                         "semseg_outputs": ndarray(H, W)
                         "parsing_outputs": [{
                                             "category_id": 1,
@@ -131,7 +131,7 @@ class ParsingEvaluator(DatasetEvaluator):
                                             "score": float,
                                             "mask": ndarray(H, W),
                                           } ... ],
-                     }, ...]
+                     }}, ...]
             During evaluation, length of outputs is 1
         """
 
@@ -143,8 +143,8 @@ class ParsingEvaluator(DatasetEvaluator):
 
         for parsing_output in output_dict["parsing_outputs"]:
             parsing_prediction = {"image_id": inputs[0]["image_id"]}
-            parsing_prediction['category_id'] = parsing_output["category_id"]
-            parsing_prediction['parsing'] = csr_matrix(parsing_output["parsing"])
+            # parsing_prediction['category_id'] = parsing_output["category_id"]
+            parsing_prediction['parsing'] = csr_matrix(parsing_output["parsing"].numpy())
             parsing_prediction['score'] = parsing_output["instance_score"]
             if len(parsing_prediction) > 1:
                 self._parsing_predictions.append(parsing_prediction)
@@ -154,7 +154,7 @@ class ParsingEvaluator(DatasetEvaluator):
             part_prediction["img_name"] = inputs[0]["file_name"].split('/')[-1].split('.')[0]
             part_prediction["category_id"] = part_output["category_id"]
             part_prediction["score"] = part_output["score"]
-            part_prediction["mask"] = csr_matrix(part_output["mask"])
+            part_prediction["mask"] = csr_matrix(np.array(part_output["mask"] > 0).astype(np.uint8))
             if len(part_prediction) > 1:
                 self._part_predictions.append(part_prediction)
 
@@ -163,7 +163,7 @@ class ParsingEvaluator(DatasetEvaluator):
             human_prediction["img_name"] = inputs[0]["file_name"].split('/')[-1].split('.')[0]
             human_prediction["category_id"] = human_output["category_id"]
             human_prediction["score"] = human_output["score"]
-            human_prediction["mask"] = csr_matrix(human_output["mask"])
+            human_prediction["mask"] = csr_matrix(np.array(human_output["mask"] > 0).astype(np.uint8))
             if len(human_prediction) > 1:
                 self._human_predictions.append(human_prediction)
 

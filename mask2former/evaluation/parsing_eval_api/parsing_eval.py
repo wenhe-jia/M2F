@@ -22,16 +22,16 @@ class ParsingEval(object):
 
     def __init__(
             self,
-            parsingGt = None,
-            semsegPred = None,
-            parsingPred = None,
-            partPred = None,
-            humanPred = None,
-            gt_dir = None,
-            pred_dir = None,
-            score_thresh = 0.001,
-            num_parsing = 20,
-            metrics = ('mIoU', 'APp', 'APr')
+            parsingGt=None,
+            semsegPred=None,
+            parsingPred=None,
+            partPred=None,
+            humanPred=None,
+            gt_dir=None,
+            pred_dir=None,
+            score_thresh=0.001,
+            num_parsing=20,
+            metrics=('mIoU', 'APp', 'APr')
     ):
 
         """
@@ -429,10 +429,11 @@ class ParsingEval(object):
 
         # AP under each threshold.
         mAPr = np.nanmean(APr, axis=0)
+        APr_cat = np.nanmean(APr, axis=1)
         all_APr = {}
         for i, thre in enumerate(self.par_thresholds):
             all_APr[thre] = mAPr[i]
-        return all_APr
+        return all_APr, APr_cat
 
     def computeAPh(self):
         self._logger.info('Evaluating AP^h')
@@ -513,8 +514,9 @@ class ParsingEval(object):
             APp, PCP = self.computeAPp()
             self.stats.update(dict(APp=APp, PCP=PCP))
         if 'APr' in self.metrics or 'ap^r' in self.metrics:
-            APr = self.computeAPr()
+            APr, APr_cat = self.computeAPr()
             self.stats.update(dict(APr=APr))
+            self.stats.update(dict(APr_cat=APr_cat))
         if 'APh' in self.metrics or 'ap^h' in self.metrics:
             APh = self.computeAPh()
             self.stats.update(dict(APh=APh))
@@ -549,6 +551,14 @@ class ParsingEval(object):
         if 'APr' in self.metrics or 'ap^r' in self.metrics:
             APr = self.stats['APr']
             mAPr = np.nanmean(np.array(list(APr.values())))
+            APr_cat = self.stats['APr_cat']
+            self._logger.info('~~~~ Summary metrics (per category)~~~~')
+            for cat_id, apr_c in enumerate(APr_cat):
+                self._logger.info(
+                    ' Average Precision based on region (APr)' +'Class '+
+                    str(cat_id + 1) + '         @[mIoU=0.10:0.90 ] = {:.3f}'.format(apr_c)
+                )
+            self._logger.info('='*80)
             self._logger.info('~~~~ Summary metrics ~~~~')
             self._logger.info(
                 ' Average Precision based on region (APr)             @[mIoU=0.10:0.90 ] = {:.3f}'.format(mAPr))
