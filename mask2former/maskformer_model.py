@@ -1,4 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
+import sys
 from typing import Tuple
 
 import torch
@@ -30,30 +31,30 @@ class MaskFormer(nn.Module):
 
     @configurable
     def __init__(
-        self,
-        *,
-        backbone: Backbone,
-        sem_seg_head: nn.Module,
-        criterion: nn.Module,
-        num_queries: int,
-        object_mask_threshold: float,
-        overlap_threshold: float,
-        metadata,
-        size_divisibility: int,
-        sem_seg_postprocess_before_inference: bool,
-        pixel_mean: Tuple[float],
-        pixel_std: Tuple[float],
-        # inference
-        semantic_on: bool,
-        panoptic_on: bool,
-        instance_on: bool,
-        test_topk_per_image: int,
-        # parsing inference
-        parsing_on: bool,
-        multi_human_parsing: bool,
-        with_human_instance: bool,
-        parsing_ins_score_thr: float,
-        iop_thresh: float,
+            self,
+            *,
+            backbone: Backbone,
+            sem_seg_head: nn.Module,
+            criterion: nn.Module,
+            num_queries: int,
+            object_mask_threshold: float,
+            overlap_threshold: float,
+            metadata,
+            size_divisibility: int,
+            sem_seg_postprocess_before_inference: bool,
+            pixel_mean: Tuple[float],
+            pixel_std: Tuple[float],
+            # inference
+            semantic_on: bool,
+            panoptic_on: bool,
+            instance_on: bool,
+            test_topk_per_image: int,
+            # parsing inference
+            parsing_on: bool,
+            multi_human_parsing: bool,
+            with_human_instance: bool,
+            parsing_ins_score_thr: float,
+            iop_thresh: float,
     ):
         """
         Args:
@@ -164,9 +165,9 @@ class MaskFormer(nn.Module):
             "metadata": MetadataCatalog.get(cfg.DATASETS.TRAIN[0]),
             "size_divisibility": cfg.MODEL.MASK_FORMER.SIZE_DIVISIBILITY,
             "sem_seg_postprocess_before_inference": (
-                cfg.MODEL.MASK_FORMER.TEST.SEM_SEG_POSTPROCESSING_BEFORE_INFERENCE
-                or cfg.MODEL.MASK_FORMER.TEST.PANOPTIC_ON
-                or cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON
+                    cfg.MODEL.MASK_FORMER.TEST.SEM_SEG_POSTPROCESSING_BEFORE_INFERENCE
+                    or cfg.MODEL.MASK_FORMER.TEST.PANOPTIC_ON
+                    or cfg.MODEL.MASK_FORMER.TEST.INSTANCE_ON
             ),
             "pixel_mean": cfg.MODEL.PIXEL_MEAN,
             "pixel_std": cfg.MODEL.PIXEL_STD,
@@ -253,11 +254,11 @@ class MaskFormer(nn.Module):
 
             processed_results = []
             for mask_cls_result, mask_pred_result, input_per_image, image_size in zip(
-                mask_cls_results, mask_pred_results, batched_inputs, images.image_sizes
+                    mask_cls_results, mask_pred_results, batched_inputs, images.image_sizes
             ):
                 height = input_per_image.get("height", image_size[0])
                 width = input_per_image.get("width", image_size[1])
-                processed_results.append({}) # for each image
+                processed_results.append({})  # for each image
 
                 if self.sem_seg_postprocess_before_inference:
                     """
@@ -415,7 +416,8 @@ class MaskFormer(nn.Module):
 
         # [Q, K]
         scores = F.softmax(mask_cls, dim=-1)[:, :-1]  # discard non-sense category
-        labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)
+        labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries,
+                                                                                                     1).flatten(0, 1)
         # scores_per_image, topk_indices = scores.flatten(0, 1).topk(self.num_queries, sorted=False)
         scores_per_image, topk_indices = scores.flatten(0, 1).topk(self.test_topk_per_image, sorted=False)
         labels_per_image = labels[topk_indices]  # (topk,), scores_per_image in same shape
@@ -442,7 +444,8 @@ class MaskFormer(nn.Module):
         # result.pred_boxes = BitMasks(mask_pred > 0).get_bounding_boxes()
 
         # perform SOLO rescore
-        mask_scores_per_image = (mask_pred.sigmoid().flatten(1) * result.pred_masks.flatten(1)).sum(1) / (result.pred_masks.flatten(1).sum(1) + 1e-6)  # pixel score
+        mask_scores_per_image = (mask_pred.sigmoid().flatten(1) * result.pred_masks.flatten(1)).sum(1) / (
+                    result.pred_masks.flatten(1).sum(1) + 1e-6)  # pixel score
 
         # perform QANet pixel score
         # mask_pred = self.restrict_mask_to_fg(mask_pred)
@@ -451,17 +454,17 @@ class MaskFormer(nn.Module):
         # mask_scores_per_image = (torch.sum(im_masks_th, dim=(1, 2)).to(dtype=torch.float32)
         #                      / torch.sum(im_masks_tl, dim=(1, 2)).to(dtype=torch.float32).clamp(min=1e-6))
 
-
         # result.scores = scores_per_image
         # result.scores = scores_per_image * mask_scores_per_image
-        result.scores = torch.pow(torch.pow(scores_per_image, 1.0) * torch.pow(mask_scores_per_image, 3.0), 1./1+3)
+        result.scores = torch.pow(torch.pow(scores_per_image, 1.0) * torch.pow(mask_scores_per_image, 3.0), 1. / 1 + 3)
 
         result.pred_classes = labels_per_image
         return result
 
     def parsing_instance_inference_without_human(self, mask_cls, mask_pred):
         scores = F.softmax(mask_cls, dim=-1)[:, :-1]
-        labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)
+        labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries,
+                                                                                                     1).flatten(0, 1)
         scores_per_image, topk_indices = scores.flatten(0, 1).topk(self.test_topk_per_image, sorted=False)
         labels_per_image = labels[topk_indices]
 
@@ -491,9 +494,9 @@ class MaskFormer(nn.Module):
                     continue
                 part_instance_res.append(
                     {
-                        "category_id": pred_labels[idx].cpu(),
-                        "score": pred_scores[idx].cpu(),
-                        "mask": (pred_masks[idx] > 0.).cpu().numpy().astype(np.uint8),
+                        "category_id": pred_labels[idx].cpu().tolist(),
+                        "score": pred_scores[idx].cpu().tolist(),
+                        "mask": pred_masks[idx].cpu(),
                     }
                 )
             else:
@@ -501,17 +504,18 @@ class MaskFormer(nn.Module):
                     continue
                 part_instance_res.append(
                     {
-                        "category_id": pred_labels[idx].cpu() + 1,
-                        "score"      : pred_scores[idx].cpu(),
-                        "mask"       : (pred_masks[idx] > 0.).cpu().numpy().astype(np.uint8),
+                        "category_id": pred_labels[idx].cpu().tolist() + 1,
+                        "score": pred_scores[idx].cpu().tolist(),
+                        "mask": pred_masks[idx].cpu(),
                     }
                 )
 
-        return semantic_res, part_instance_res
+        return semantic_res, []
 
     def parsing_instance_inference_with_human(self, mask_cls, mask_pred):
         scores = F.softmax(mask_cls, dim=-1)[:, :-1]
-        labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)
+        labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries,
+                                                                                                     1).flatten(0, 1)
         scores_per_image, topk_indices = scores.flatten(0, 1).topk(self.test_topk_per_image, sorted=False)
         labels_per_image = labels[topk_indices]
 
@@ -529,13 +533,13 @@ class MaskFormer(nn.Module):
         # get person instances and part instances
         part_labels = pred_labels[torch.where(pred_labels != 0)[0]]
         part_scores = pred_scores[torch.where(pred_labels != 0)[0]]
-        part_masks  = pred_masks[torch.where(pred_labels != 0)[0], :, :]
+        part_masks = pred_masks[torch.where(pred_labels != 0)[0], :, :]
 
         person_labels = pred_labels[torch.where(pred_labels == 0)[0]]
         person_scores = pred_scores[torch.where(pred_labels == 0)[0]]
         person_masks = pred_masks[torch.where(pred_labels == 0)[0], :, :]
 
-        person_keep_ind = torch.where(person_scores > 0.)[0]
+        person_keep_ind = torch.where(person_scores > 0.1)[0]
         person_scores = person_scores[person_keep_ind]
         person_masks = person_masks[person_keep_ind, :, :]
 
@@ -550,9 +554,9 @@ class MaskFormer(nn.Module):
                 continue
             part_instance_res.append(
                 {
-                    "category_id": part_labels[part_idx].cpu(),
-                    "score"      : part_scores[part_idx].cpu(),
-                    "mask"       : (part_masks[part_idx] > 0.).cpu().numpy().astype(np.uint8),
+                    "category_id": part_labels[part_idx].cpu().tolist(),
+                    "score": part_scores[part_idx].cpu().tolist(),
+                    "mask": part_masks[part_idx].cpu(),
                 }
             )
 
@@ -563,9 +567,9 @@ class MaskFormer(nn.Module):
         for person_idx in range(person_scores.shape[0]):
             human_instance_res.append(
                 {
-                    "category_id": person_labels[person_idx].cpu(),
-                    "score"      : person_scores[person_idx].cpu(),
-                    "mask"       : (person_masks[person_idx] > 0.).cpu().numpy().astype(np.uint8),
+                    "category_id": person_labels[person_idx].cpu().tolist(),
+                    "score": person_scores[person_idx].cpu().tolist(),
+                    "mask": person_masks[person_idx].cpu(),
                 }
             )
 
@@ -595,11 +599,11 @@ class MaskFormer(nn.Module):
 
             human_parsing_res.append(
                 {
-                    "category_id"       : 1,
-                    "parsing"           : parsing_person.cpu().numpy(),
-                    "instance_score"    : person_score.cpu(),
-                    "parsing_bbox_score": person_score.cpu(),
-                    "part_pixel_scores" : parts_pix_score,
+                    "category_id": 1,
+                    "parsing": parsing_person.cpu(),
+                    "instance_score": person_score.cpu().tolist(),
+                    "parsing_bbox_score": person_score.cpu().tolist(),
+                    "part_pixel_scores": parts_pix_score,
                 }
             )
 
@@ -720,7 +724,7 @@ class MaskFormer(nn.Module):
             Boxes: tight bounding boxes around bitmasks.
             If a mask is empty, it's bounding box will be all zero.
         """
-        assert(len(pred_mask.shape) == 3)
+        assert (len(pred_mask.shape) == 3)
 
         _pred_mask = copy.deepcopy(pred_mask)
         binary_logits = (_pred_mask > 0).int()
@@ -744,6 +748,3 @@ class MaskFormer(nn.Module):
             _mask[ins_id, int(box[1]):int(box[3]), int(box[0]):int(box[2])] = 1
 
         return pred_mask * _mask
-
-
-
