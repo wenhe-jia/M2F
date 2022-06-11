@@ -13,4 +13,5 @@ from . import (
     register_lip_semseg,
     register_lip_part_instance,
     register_lip_instance,
+    register_mhpv2_instance_united,
 )
