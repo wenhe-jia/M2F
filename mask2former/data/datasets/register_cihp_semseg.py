@@ -9,7 +9,7 @@ from detectron2.data import DatasetCatalog, MetadataCatalog
 from detectron2.data.datasets.coco import load_sem_seg
 
 CIHP_SEMSEG_CATEGORIES = [
-    "background", "Hat", "Hair", "Gloves", "Sunglasses", "UpperClothes", "Dress", "Coat", "Socks", "Pants",
+    "Background", "Hat", "Hair", "Gloves", "Sunglasses", "UpperClothes", "Dress", "Coat", "Socks", "Pants",
     "Torso-skin", "Scarf", "Skirt", "Face", "Left-arm", "Right-arm", "Left-leg", "Right-leg", "Left-shoe", "Right-shoe",
 ]
 
