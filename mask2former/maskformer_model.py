@@ -582,7 +582,7 @@ class MaskFormer(nn.Module):
                     if iop > self.iop_thresh:
                         matching_mtx[human_id, part_id] = 1
 
-            matched_part_ids = matching_mtx[human_id]
+            matched_part_ids = torch.where(matching_mtx[human_id] == 1)[0]
 
             parsing_human = self.get_human_parsing(
                 human_mask,
@@ -596,8 +596,6 @@ class MaskFormer(nn.Module):
                     "category_id": 1,
                     "parsing": parsing_human.cpu(),
                     "instance_score": human_score.cpu().tolist(),
-                    "parsing_bbox_score": human_score.cpu().tolist(),
-                    "part_pixel_scores": parts_pix_score,
                 }
             )
 
