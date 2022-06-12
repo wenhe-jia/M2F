@@ -630,7 +630,7 @@ class MaskFormer(nn.Module):
         return torch.stack(semseg_im, dim=0).cpu()
 
     def paste_instance_to_semseg_probs_withbkg(self, labels, scores, prob_masks):
-        # for temporal usage, paste instances (including bkg instances) to semseg probs for single human parsing
+        # for temporary usage, paste instances (including bkg instances) to semseg probs for single human parsing
         num_classes = self.sem_seg_head.num_classes
         im_h, im_w = prob_masks.shape[-2:]
         semseg_im = []
@@ -686,7 +686,7 @@ class MaskFormer(nn.Module):
                 # for part_ind in range(len(keep_ind)):
                 #     part_mask = masks_cate[part_ind]
                 #
-                #     paste_map[torch.where(part_mask > 0.5)] += 1
+                #     paste_map[torch.where(part_mask > 0./5)] += 1
                 #     semseg_cate = torch.where(part_mask > 0.5, part_mask + semseg_cate, semseg_cate)
                 #     semseg_cate /= paste_map
 
