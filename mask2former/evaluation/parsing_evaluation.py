@@ -76,8 +76,6 @@ class ParsingEvaluator(DatasetEvaluator):
 
         self._metadata = MetadataCatalog.get(dataset_name)
 
-        print('\n==========\n', self._metadata, '\n==========\n')
-
         if not hasattr(self._metadata, "json_file"):
             if output_dir is None:
                 raise ValueError(

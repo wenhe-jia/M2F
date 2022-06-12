@@ -479,7 +479,7 @@ class MaskFormer(nn.Module):
         pred_labels = labels_per_image
         pred_masks = mask_pred
 
-        if not self.multi_human_parsing:  # for temporal usage
+        if not self.multi_human_parsing:  # for temporary usage
             semantic_res = self.paste_instance_to_semseg_probs_withbkg(pred_labels, pred_scores, pred_masks)
         else:
             semantic_res = self.paste_instance_to_semseg_probs(pred_labels, pred_scores, pred_masks)
@@ -545,9 +545,6 @@ class MaskFormer(nn.Module):
 
         semantic_res = self.paste_instance_to_semseg_probs(part_labels, part_scores, part_masks)
 
-        """
-        TODO: maybe make some modification to adapt to TTA
-        """
         part_instance_res = []
         for part_idx in range(part_labels.shape[0]):
             if part_scores[part_idx] < 0.1:
@@ -560,9 +557,6 @@ class MaskFormer(nn.Module):
                 }
             )
 
-        """
-        TODO: maybe make some modification to adapt to TTA
-        """
         human_instance_res = []
         for person_idx in range(person_scores.shape[0]):
             human_instance_res.append(
@@ -611,7 +605,7 @@ class MaskFormer(nn.Module):
 
     def paste_instance_to_semseg_probs(self, labels, scores, prob_masks):
         num_classes = self.sem_seg_head.num_classes - 1 if self.with_human_instance \
-            else self.sem_seg_head.num_classes  # 19 part classes
+            else self.sem_seg_head.num_classes
 
         im_h, im_w = prob_masks.shape[-2:]
         semseg_im = [torch.zeros((im_h, im_w), dtype=torch.float32, device=prob_masks.device) + 1e-6]
@@ -637,7 +631,7 @@ class MaskFormer(nn.Module):
 
     def paste_instance_to_semseg_probs_withbkg(self, labels, scores, prob_masks):
         # for temporal usage, paste instances (including bkg instances) to semseg probs for single human parsing
-        num_classes = self.sem_seg_head.num_classes  # background + 19 part classes
+        num_classes = self.sem_seg_head.num_classes
         im_h, im_w = prob_masks.shape[-2:]
         semseg_im = []
         for cls_ind in range(num_classes):
