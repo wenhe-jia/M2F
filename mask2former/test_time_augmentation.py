@@ -214,7 +214,7 @@ class ParsingWithTTA(nn.Module):
                     all_human_predictions[human_prediction['category_id']]['masks'].append(human_prediction['mask'])
                     all_human_predictions[human_prediction['category_id']]['scores'].append(human_prediction['score'])
 
-                # store parsing
+                # store parsings
                 for parsing_prediction in parsing_predictions:
                     parsings.append(parsing_prediction['parsing'])
                     parsing_instance_scores.append(parsing_prediction['instance_score'])
@@ -232,27 +232,7 @@ class ParsingWithTTA(nn.Module):
                 }
             )
 
-        # print(len(model_out['part_outputs']), len(final_part_predictions))
 
-        # # visualize
-        # cat_map = {0: 'Person', 1: 'Hat', 2: 'Hair', 3: 'Gloves', 4: 'Sunglasses', 5: 'UpperClothes', 6: 'Dress',
-        #            7: 'Coat', 8: 'Socks', 9: 'Pants', 10: 'Torso-skin', 11: 'Scarf', 12: 'Skirt', 13: 'Face',
-        #            14: 'Left-arm', 15: 'Right-arm', 16: 'Left-leg', 17: 'Right-leg', 18: 'Left-shoe', 19: 'Right-shoe'}
-        #
-        # path = os.path.join('./vis_out/', 'image_id '+str(input['image_id']))
-        # os.makedirs(path, exist_ok=True)
-        # for i, pred in enumerate(final_part_predictions):
-        #     print(input['image'].numpy().shape)
-        #     img = cv2.resize(input['image'].permute(1, 2, 0).numpy(), (orig_shape[1], orig_shape[0]))
-        #     alpha = 0.5
-        #     color = np.array([0, 255, 0], dtype=np.uint8)
-        #     mask = (pred['mask'] > 0).astype(np.bool)
-        #     print(mask.shape, img.shape)
-        #     img[mask] = img[mask] * (1 - alpha) + alpha * color
-        #     cv2.imwrite(
-        #         os.path.join(path, str(i) + '-' + cat_map[pred['category_id']] + '-' + str(pred['score']) + '.jpg'),
-        #         img)
-        # sys.exit()
 
         return {
             "parsing": {
