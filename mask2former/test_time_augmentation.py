@@ -121,6 +121,21 @@ class ParsingWithTTA(nn.Module):
         self.tta_mapper = tta_mapper
         self.batch_size = batch_size
 
+        metadata = MetadataCatalog.get(self.cfg.DATASETS.TEST[0])
+        if metadata.evaluator_type == "sem_seg":
+            num_parsing = len(metadata.stuff_classes)
+        elif metadata.evaluator_type == "coco":
+            classes = metadata.thing_classes
+            if "Person" in classes or "Background" in classes:
+                num_parsing = len(metadata.thing_classes)
+            else:
+                num_parsing = len(metadata.thing_classes) + 1
+        else:
+            raise NotImplementedError(
+                "Need to set num parsing !!!"
+            )
+        self.num_parsing = num_parsing
+
     def __call__(self, batched_inputs):
         """
         Same input/output format as :meth:`SemanticSegmentor.forward`
@@ -222,8 +237,11 @@ class ParsingWithTTA(nn.Module):
         final_semantic_predictions = final_semantic_predictions / count_predictions
         final_part_predictions = predictions_supress(all_part_predictions)
         final_human_predictions = predictions_supress(all_human_predictions)
+
         final_parsing_predictions = []
-        final_parsings, final_parsing_instance_scores = parsing_nms(np.array(parsings), np.array(parsing_instance_scores))
+        final_parsings, final_parsing_instance_scores = parsing_nms(
+            np.array(parsings), np.array(parsing_instance_scores), num_parsing=self.num_parsing
+        )
         for final_parsing, final_parsing_instance_score in zip(final_parsings, final_parsing_instance_scores):
             final_parsing_predictions.append(
                 {
@@ -231,8 +249,6 @@ class ParsingWithTTA(nn.Module):
                     "instance_score": final_parsing_instance_score,
                 }
             )
-
-
 
         return {
             "parsing": {
