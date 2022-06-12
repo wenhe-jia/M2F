@@ -530,18 +530,18 @@ class MaskFormer(nn.Module):
         pred_labels = labels_per_image
         pred_masks = mask_pred
 
-        # get person instances and part instances
+        # get human instances and part instances
         part_labels = pred_labels[torch.where(pred_labels != 0)[0]]
         part_scores = pred_scores[torch.where(pred_labels != 0)[0]]
         part_masks = pred_masks[torch.where(pred_labels != 0)[0], :, :]
 
-        person_labels = pred_labels[torch.where(pred_labels == 0)[0]]
-        person_scores = pred_scores[torch.where(pred_labels == 0)[0]]
-        person_masks = pred_masks[torch.where(pred_labels == 0)[0], :, :]
+        human_labels = pred_labels[torch.where(pred_labels == 0)[0]]
+        human_scores = pred_scores[torch.where(pred_labels == 0)[0]]
+        human_masks = pred_masks[torch.where(pred_labels == 0)[0], :, :]
 
-        person_keep_ind = torch.where(person_scores > 0.1)[0]
-        person_scores = person_scores[person_keep_ind]
-        person_masks = person_masks[person_keep_ind, :, :]
+        human_keep_ind = torch.where(human_scores > 0.1)[0]
+        human_scores = human_scores[human_keep_ind]
+        human_masks = human_masks[human_keep_ind, :, :]
 
         semantic_res = self.paste_instance_to_semseg_probs(part_labels, part_scores, part_masks)
 
@@ -558,12 +558,12 @@ class MaskFormer(nn.Module):
             )
 
         human_instance_res = []
-        for person_idx in range(person_scores.shape[0]):
+        for human_idx in range(human_scores.shape[0]):
             human_instance_res.append(
                 {
-                    "category_id": person_labels[person_idx].cpu().tolist(),
-                    "score": person_scores[person_idx].cpu().tolist(),
-                    "mask": person_masks[person_idx].cpu(),
+                    "category_id": human_labels[human_idx].cpu().tolist(),
+                    "score": human_scores[human_idx].cpu().tolist(),
+                    "mask": human_masks[human_idx].cpu(),
                 }
             )
 
@@ -571,21 +571,21 @@ class MaskFormer(nn.Module):
         TODO: maybe make some modification to adapt to TTA
         """
         human_parsing_res = []
-        matching_mtx = torch.zeros((person_scores.shape[0], part_scores.shape[0]), dtype=torch.uint8)
-        person_ids = torch.arange(person_masks.shape[0])
+        matching_mtx = torch.zeros((human_scores.shape[0], part_scores.shape[0]), dtype=torch.uint8)
+        human_ids = torch.arange(human_masks.shape[0])
         part_ids = torch.arange(part_masks.shape[0])
-        for person_id, person_score, person_mask in zip(person_ids, person_scores, person_masks):
+        for human_id, human_score, human_mask in zip(human_ids, human_scores, human_masks):
             for part_id, part_label, part_score, part_mask in zip(part_ids, part_labels, part_scores, part_masks):
                 if part_score > self.parsing_ins_score_thr:
-                    iop = compute_parsing_IoP(copy.deepcopy(person_mask > 0), copy.deepcopy(part_mask > 0))
+                    iop = compute_parsing_IoP(copy.deepcopy(human_mask > 0), copy.deepcopy(part_mask > 0))
 
                     if iop > self.iop_thresh:
-                        matching_mtx[person_id, part_id] = 1
+                        matching_mtx[human_id, part_id] = 1
 
-            matched_part_ids = matching_mtx[person_id]
+            matched_part_ids = matching_mtx[human_id]
 
-            parsing_person, parts_pix_score = self.get_person_parsing(
-                person_mask,
+            parsing_human = self.get_human_parsing(
+                human_mask,
                 part_scores[matched_part_ids],
                 part_labels[matched_part_ids],
                 part_masks[matched_part_ids]
@@ -594,9 +594,9 @@ class MaskFormer(nn.Module):
             human_parsing_res.append(
                 {
                     "category_id": 1,
-                    "parsing": parsing_person.cpu(),
-                    "instance_score": person_score.cpu().tolist(),
-                    "parsing_bbox_score": person_score.cpu().tolist(),
+                    "parsing": parsing_human.cpu(),
+                    "instance_score": human_score.cpu().tolist(),
+                    "parsing_bbox_score": human_score.cpu().tolist(),
                     "part_pixel_scores": parts_pix_score,
                 }
             )
@@ -651,36 +651,35 @@ class MaskFormer(nn.Module):
 
         return torch.stack(semseg_im, dim=0).cpu()
 
-    def get_person_parsing(self, person_mask, part_scores, part_labels, part_masks):
+    def get_human_parsing(self, human_mask, part_scores, part_labels, part_masks):
         im_h, im_w = part_masks.shape[-2:]
-        # person_parsing = [torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device) + 1e-6]
-        person_parsing = [1 - person_mask.sigmoid()]
-        part_pix_scores = []
-        for cls_ind in range(1, self.sem_seg_head.num_classes):  # skip class 'person'
+        # parsing_probs = [torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device) + 1e-6]
+        parsing_probs = [1 - human_mask.sigmoid()]
+        for cls_ind in range(1, self.sem_seg_head.num_classes):  # skip class 'human'
             keep_ind = torch.where(part_labels == cls_ind)[0]
             if len(keep_ind) == 0:
-                semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
+                parsing_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
             elif len(keep_ind) == 1:
-                semseg_cate = part_masks[keep_ind[0]].sigmoid()
+                parsing_cate = part_masks[keep_ind[0]].sigmoid()
             else:
                 scores_cate = part_scores[keep_ind]
                 masks_cate = part_masks[keep_ind].sigmoid()
 
-                # keep only one part instance for one person
+                # keep only one part instance for one human
                 # max_idx = scores_cate.argmax()
                 # semseg_cate = masks_cate[max_idx, :, :]
 
                 paste_time = 0
-                semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
+                parsing_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
                 for part_ind in range(len(keep_ind)):
                     if part_scores[part_ind] < 0.:
                         continue
                     paste_time += 1
                     part_mask = masks_cate[part_ind]
-                    semseg_cate = torch.where(part_mask > 0.5, part_mask + semseg_cate, semseg_cate)
+                    semseg_cate = torch.where(part_mask > 0.5, part_mask + parsing_cate, parsing_cate)
 
                 if paste_time > 0:
-                    semseg_cate /= paste_time
+                    parsing_cate /= paste_time
 
                 # paste_map = torch.ones((im_h, im_w), dtype=torch.float32, device=part_masks.device)
                 # semseg_cate = torch.zeros((im_h, im_w), dtype=torch.float32, device=part_masks.device)
@@ -691,26 +690,12 @@ class MaskFormer(nn.Module):
                 #     semseg_cate = torch.where(part_mask > 0.5, part_mask + semseg_cate, semseg_cate)
                 #     semseg_cate /= paste_map
 
-            person_parsing.append(semseg_cate)
-            # part pixel score
-            part_pix_scores.append(self.pixel_score(semseg_cate).cpu())
+            parsing_probs.append(parsing_cate)
 
-        parsing_probs = torch.stack(person_parsing, dim=0)  # (C, H, W)
-        parsings = parsing_probs.argmax(dim=0).to(dtype=torch.uint8)
+        parsing_probs = torch.stack(parsing_probs, dim=0)  # (C, H, W)
+        parsing = parsing_probs.argmax(dim=0).to(dtype=torch.uint8)
 
-        return parsings, part_pix_scores
-
-    def pixel_score(self, pred, thr=0.5):
-        # pred: (H, W)
-        # high confidence mask (hcm)
-        inst_hcm = (pred >= thr).to(dtype=torch.bool)
-        # high confidence value (hcv)
-        inst_hcv = torch.sum(pred * inst_hcm, dim=[0, 1]).to(dtype=torch.float32)
-        inst_hcm_num = torch.clamp(torch.sum(inst_hcm, dim=[0, 1]).to(dtype=torch.float32), min=1e-6)
-
-        pix_score = inst_hcv / inst_hcm_num
-
-        return pix_score
+        return parsing
 
     def restrict_mask_to_fg(self, pred_mask):
         """
