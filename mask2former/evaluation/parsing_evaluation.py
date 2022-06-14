@@ -229,19 +229,7 @@ def _evaluate_predictions_on_parsing(
     Evaluate the parsing results using ParsingEval API.
     """
     model_parsing_score_threse = 0.01
-
-    if metadata.evaluator_type == "sem_seg":
-        model_parsing_num_parsing = len(metadata.stuff_classes)
-    elif metadata.evaluator_type == "coco":
-        classes = metadata.thing_classes
-        if "Person" in classes or "Background" in classes:
-            model_parsing_num_parsing = len(metadata.thing_classes)
-        else:
-            model_parsing_num_parsing = len(metadata.thing_classes) + 1
-    else:
-        raise NotImplementedError(
-            "Need to set num parsing !!!"
-        )
+    model_parsing_num_parsing = metadata.num_parsing
 
     pet_eval = ParsingEval(
         parsing_gt,
