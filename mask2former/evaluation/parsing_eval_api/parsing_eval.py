@@ -1,4 +1,6 @@
 import copy, logging
+import json
+import sys
 import time
 
 import cv2
@@ -8,6 +10,7 @@ import os
 import warnings
 from PIL import Image
 from tqdm import tqdm, trange
+import pycocotools.mask as mask_utils
 
 from .semseg_eval import SemSegEvaluator
 from .utils import get_parsing
@@ -23,10 +26,7 @@ class ParsingEval(object):
     def __init__(
             self,
             parsingGt=None,
-            semsegPred=None,
             parsingPred=None,
-            partPred=None,
-            humanPred=None,
             gt_dir=None,
             pred_dir=None,
             score_thresh=0.001,
@@ -42,10 +42,9 @@ class ParsingEval(object):
         """
         self.parsingGt = parsingGt
 
-        self.semsegPred = semsegPred
         self.parsingPred = parsingPred
-        self.partPred = partPred
-        self.humanPred = humanPred
+        self.partPred = None
+        self.humanPred = None
 
         self.params = {}  # evaluation parameters
         self.params = Params(iouType='iou')  # parameters
@@ -64,7 +63,7 @@ class ParsingEval(object):
             # assert os.path.exists(self.global_parsing_dir)
             self._logger.info('The Global Parsing Images: {}'.format(len(parsingGt)))
             self.semseg_eval = SemSegEvaluator(
-                parsingGt, self.semsegPred, self.gt_dir, self.num_parsing,
+                parsingGt, self.pred_dir, self.gt_dir, self.num_parsing,
                 gt_dir=self.gt_dir.replace('Images', 'Category_ids')
             )
             self.semseg_eval.evaluate()
@@ -251,7 +250,14 @@ class ParsingEval(object):
             false_pos.append([])
 
         part_img_cat_dict = {}
-        for pred_im in self.partPred:
+        part_predictions = []
+        for pp in os.listdir(os.path.join(self.pred_dir, 'part')):
+            pp_dict = json.load(open(os.path.join(self.pred_dir, 'part', pp), 'r'))
+            for _p in pp_dict:
+                _p['mask']=mask_utils.decode(_p['mask'])
+            part_predictions.extend(pp_dict)
+
+        for pred_im in part_predictions:
             if pred_im["img_name"] not in part_img_cat_dict:
                 part_img_cat_dict[pred_im["img_name"]] = {}
             if int(pred_im['category_id']) not in part_img_cat_dict[pred_im["img_name"]]:
@@ -280,7 +286,7 @@ class ParsingEval(object):
             except:
                 partPred_cls = []
 
-            pred_masks = [x["mask"].toarray().astype(np.uint8) for x in partPred_cls]
+            pred_masks = [x["mask"] for x in partPred_cls]
             pred_scores = [float(x["score"]) for x in partPred_cls]
             num_pred_instance = len(partPred_cls)
 
@@ -342,7 +348,7 @@ class ParsingEval(object):
         scores = []
         image_ids = []
         for idx, p in enumerate(self.parsingPred):
-            parsings.append(p['parsing'].toarray())
+            parsings.append(p['parsing'])
             scores.append(p['score'])
             image_ids.append(p['image_id'])
         scores = np.array(scores)
@@ -362,7 +368,7 @@ class ParsingEval(object):
             ovmax = -np.inf
             jmax = -1
 
-            mask0 = parsings[cur_id]  # curr pred, single person instance
+            mask0 = parsings[cur_id].toarray()  # curr pred, single person instance
             mask_pred = mask0.astype(np.int)
             mask_gt_u = seg_iou_max = None
             for i in range(len(R[0]['anno_adds'])):
@@ -454,12 +460,19 @@ class ParsingEval(object):
         tmp_instance_seg_gt_dir = instance_seg_gt_dir
         img_name_list = [x.split("/")[-1].split(".")[0] for x in glob.glob(tmp_instance_seg_gt_dir + '/*')]
 
+        human_predictions = []
+        for hp in os.listdir(os.path.join(self.pred_dir, 'human')):
+            hp_dict = json.load(open(os.path.join(self.pred_dir, 'human', hp), 'r'))
+            for _p in hp_dict:
+                _p['mask'] = mask_utils.decode(_p['mask'])
+            human_predictions.extend(hp_dict)
+
         for img_name in tqdm(img_name_list, desc='Calculating APh..'):
             gt_mask = cv2.imread(os.path.join(instance_seg_gt_dir, img_name + '.png'), 0)
             gt_mask, n_gt_inst = self._convert2evalformat(gt_mask)
 
-            humanPred_im = [x for x in self.humanPred if x["img_name"] == img_name]
-            pre_mask = [x["mask"].toarray().astype(np.uint8) for x in humanPred_im]
+            humanPred_im = [x for x in human_predictions if x["img_name"] == img_name]
+            pre_mask = [x["mask"] for x in humanPred_im]
             tmp_scores = [float(x["score"]) for x in humanPred_im]
             n_pre_inst = len(humanPred_im)
 
@@ -555,10 +568,10 @@ class ParsingEval(object):
             self._logger.info('~~~~ Summary metrics (per category)~~~~')
             for cat_id, apr_c in enumerate(APr_cat):
                 self._logger.info(
-                    ' Average Precision based on region (APr)' +'Class '+
+                    ' Average Precision based on region (APr)' + 'Class ' +
                     str(cat_id + 1) + '         @[mIoU=0.10:0.90 ] = {:.3f}'.format(apr_c)
                 )
-            self._logger.info('='*80)
+            self._logger.info('=' * 80)
             self._logger.info('~~~~ Summary metrics ~~~~')
             self._logger.info(
                 ' Average Precision based on region (APr)             @[mIoU=0.10:0.90 ] = {:.3f}'.format(mAPr))

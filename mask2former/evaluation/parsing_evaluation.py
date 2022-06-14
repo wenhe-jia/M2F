@@ -6,8 +6,10 @@ import io
 import itertools
 import json
 import logging
+import shutil
 import sys
 
+import cv2
 import numpy as np
 import os
 import pickle
@@ -100,72 +102,68 @@ class ParsingEvaluator(DatasetEvaluator):
         self._do_evaluation = True  # "annotations" in self._coco_api.dataset
 
     def reset(self):
-        self._semseg_predictions = []
-        self._part_predictions   = []
-        self._human_predictions  = []
-        self._parsing_predictions   = []
+        self._parsing_predictions = []
+
 
     def process(self, inputs, outputs):
-        """
-        Args:
-            inputs: the inputs to a COCO model (e.g., GeneralizedRCNN).
-                It is a list of dict. Each dict corresponds to an image and
-                contains keys like "height", "width", "file_name", "image_id".
-            outputs: [{"parsing": {
-                        "semseg_outputs": ndarray(H, W)
-                        "parsing_outputs": [{
-                                            "category_id": 1,
-                                            "parsing": ndarray(H, W),
-                                            "instance_score": float,
-                                            "parsing_bbox_score": float,
-                                            "part_pixel_scores": [float, ...]
-                                            } ... ],
-
-                        "part_outputs": [{
-                                            "category_id": int,
-                                            "score": float,
-                                            "mask": ndarray(H, W),
-                                         } ... ],
-                        "human_outputs": [{
-                                            "category_id": 0,
-                                            "score": float,
-                                            "mask": ndarray(H, W),
-                                          } ... ],
-                     }}, ...]
-            During evaluation, length of outputs is 1
-        """
 
         output_dict = outputs[-1]['parsing']
 
-        self._semseg_predictions.append(
-            {inputs[0]["file_name"].split('/')[-1]: csr_matrix(output_dict["semseg_outputs"].argmax(dim=0).cpu().numpy())}
-        )
+        # save results to png
+        output_root = self._output_dir
 
-        for parsing_output in output_dict["parsing_outputs"]:
-            parsing_prediction = {"image_id": inputs[0]["image_id"]}
-            # parsing_prediction['category_id'] = parsing_output["category_id"]
-            parsing_prediction['parsing'] = csr_matrix(parsing_output["parsing"].numpy())
-            parsing_prediction['score'] = parsing_output["instance_score"]
-            if len(parsing_prediction) > 1:
-                self._parsing_predictions.append(parsing_prediction)
+        # semseg_predictions
+        semseg_path = os.path.join(output_root, 'semseg')
+        os.makedirs(semseg_path, exist_ok=True)
+
+        semseg_img = output_dict["semseg_outputs"].argmax(dim=0).cpu().numpy()
+        semseg_name = os.path.join(semseg_path, os.path.splitext(inputs[0]["file_name"])[0].split('/')[-1] + '.png')
+        cv2.imwrite(semseg_name, semseg_img)
+
+        # part predictions
+        part_path = os.path.join(output_root, 'part')
+        os.makedirs(part_path, exist_ok=True)
+        part_list = []
 
         for part_output in output_dict["part_outputs"]:
             part_prediction = {"image_id": inputs[0]["image_id"]}
             part_prediction["img_name"] = inputs[0]["file_name"].split('/')[-1].split('.')[0]
             part_prediction["category_id"] = part_output["category_id"]
             part_prediction["score"] = part_output["score"]
-            part_prediction["mask"] = csr_matrix(np.array(part_output["mask"] > 0).astype(np.uint8))
+            _rle = mask_util.encode(np.array((part_output["mask"] > 0)[:, :, None], order="F", dtype="uint8"))[0]
+            _rle["counts"] = _rle["counts"].decode("utf-8")
+            part_prediction['mask'] = _rle
             if len(part_prediction) > 1:
-                self._part_predictions.append(part_prediction)
+                part_list.append(part_prediction)
+
+        part_name = os.path.join(part_path, '{}.json'.format(inputs[0]["image_id"]))
+        json.dump(part_list, open(part_name, 'w'))
+
+        # human predictions
+        human_path = os.path.join(output_root, 'human')
+        os.makedirs(human_path, exist_ok=True)
+        human_list = []
 
         for human_output in output_dict["human_outputs"]:
             human_prediction = {"image_id": inputs[0]["image_id"]}
             human_prediction["img_name"] = inputs[0]["file_name"].split('/')[-1].split('.')[0]
             human_prediction["category_id"] = human_output["category_id"]
             human_prediction["score"] = human_output["score"]
-            human_prediction["mask"] = csr_matrix(np.array(human_output["mask"] > 0).astype(np.uint8))
+            _rle2 = mask_util.encode(np.array((human_output["mask"] > 0)[:, :, None], order="F", dtype="uint8"))[0]
+            _rle2["counts"] = _rle2["counts"].decode("utf-8")
+            human_prediction["mask"] = _rle2
             if len(human_prediction) > 1:
-                self._human_predictions.append(human_prediction)
+                human_list.append(human_prediction)
+
+        human_name = os.path.join(human_path, '{}.json'.format(inputs[0]["image_id"]))
+        json.dump(human_list, open(human_name, 'w'))
+
+        for parsing_output in output_dict["parsing_outputs"]:
+            parsing_prediction = {"image_id": inputs[0]["image_id"]}
+            parsing_prediction['parsing'] = csr_matrix(parsing_output["parsing"].numpy())
+            parsing_prediction['score'] = parsing_output["instance_score"]
+            if len(parsing_prediction) > 1:
+                self._parsing_predictions.append(parsing_prediction)
 
     def evaluate(self):
         """
@@ -173,59 +171,39 @@ class ParsingEvaluator(DatasetEvaluator):
             img_ids: a list of image IDs to evaluate on. Default to None for the whole dataset
         """
 
-
         if self._distributed:
             self._logger.info("gathering results from all devices....")
             comm.synchronize()
 
-            semseg_predictions = comm.gather(self._semseg_predictions, dst=0)
-            semseg_predictions = list(itertools.chain(*semseg_predictions))
-
-            part_predictions   = comm.gather(self._part_predictions, dst=0)
-            part_predictions   = list(itertools.chain(*part_predictions))
-
-            human_predictions  = comm.gather(self._human_predictions, dst=0)
-            human_predictions  = list(itertools.chain(*human_predictions))
-
-            parsing_prediction   = comm.gather(self._parsing_predictions, dst=0)
-            parsing_prediction   = list(itertools.chain(*parsing_prediction))
+            parsing_prediction = comm.gather(self._parsing_predictions, dst=0)
+            parsing_prediction = list(itertools.chain(*parsing_prediction))
 
             if not comm.is_main_process():
                 return {}
         else:
             self._logger.info("gathering results from single devices....")
 
-            semseg_predictions = self._semseg_predictions
-            part_predictions   = self._part_predictions
-            human_predictions  = self._human_predictions
-            parsing_prediction   = self._parsing_predictions
+            parsing_prediction = self._parsing_predictions
 
         self._logger.info("gather results from all devices done")
 
-        if len(part_predictions) == 0:
-            self._logger.warning("[ParsingEvaluator] Did not receive valid part predictions.")
-        if len(human_predictions) == 0:
-            self._logger.warning("[ParsingEvaluator] Did not receive valid human predictions.")
         if len(parsing_prediction) == 0:
             self._logger.warning("[ParsingEvaluator] Did not receive valid parsing predictions.")
 
         self._results = OrderedDict()
 
-        self._eval_parsing_predictions(semseg_predictions, parsing_prediction, part_predictions, human_predictions,)
+        self._eval_parsing_predictions(parsing_prediction)
 
         # Copy so the caller can do whatever with results
         return copy.deepcopy(self._results)
 
-    def _eval_parsing_predictions(self, semseg_predictions, pars_predictions, part_predictions, human_predictions, img_ids=None):
+    def _eval_parsing_predictions(self, pars_predictions, img_ids=None):
         """
         Evaluate parsing predictions. Fill self._results with the metrics of the tasks.
         """
         self._logger.info("Preparing results for COCO format ...")
 
-        semseg_results  = semseg_predictions
         parsing_results = pars_predictions
-        part_results    = part_predictions
-        human_results   = human_predictions
 
         if not self._do_evaluation:
             self._logger.info("Annotations are not available for evaluation.")
@@ -233,21 +211,16 @@ class ParsingEvaluator(DatasetEvaluator):
 
         _evaluate_predictions_on_parsing(
             self.parsing_GT,
-            semseg_results,
             parsing_results,
-            part_results,
-            human_results,
             self._metadata,
             self._output_dir,
             self.metrics,
         )
 
+
 def _evaluate_predictions_on_parsing(
         parsing_gt,
-        semseg_results,
         parsing_results,
-        part_results,
-        human_results,
         metadata,
         output_folder,
         metrics,
@@ -272,7 +245,7 @@ def _evaluate_predictions_on_parsing(
 
     pet_eval = ParsingEval(
         parsing_gt,
-        semseg_results, parsing_results, part_results, human_results,
+        parsing_results,
         metadata.image_root, output_folder,
         model_parsing_score_threse,
         model_parsing_num_parsing,

@@ -1,3 +1,5 @@
+import sys
+
 import cv2
 import dpath.util
 import numpy as np
@@ -7,8 +9,8 @@ import logging
 
 from .utils import convert_pano_to_semseg, convert_poly_to_semseg
 
-
 from detectron2.utils.logger import create_small_table
+
 
 class SemSegEvaluator(object):
     """
@@ -40,7 +42,7 @@ class SemSegEvaluator(object):
         else:
             self.gt_dir = dpath.util.get(ann_fields, "/semseg/seg_root", default=root_dir.replace('img', 'seg'))
         self.stats = dict()
-        self._logger=logging.getLogger(__name__)
+        self._logger = logging.getLogger(__name__)
 
     def fast_hist(self, a, b):
         # print('gt & pre shape: ', a.shape, b.shape)
@@ -78,15 +80,20 @@ class SemSegEvaluator(object):
     def evaluate(self):
         self._logger.info('Evaluating Semantic Segmentation predictions')
         hist = np.zeros((self.num_classes, self.num_classes))
+        pred = []
+        for ss in os.listdir(os.path.join(self.preds, 'semseg')):
+            pred.append({ss: cv2.imread(os.path.join(self.preds,'semseg',ss),-1)})
+            # print(pred)
+
 
         for i in tqdm(self.ids, desc='Calculating IoU ..'):
             image_name = self.dataset.coco.imgs[i]['file_name'].replace(*self.name_trans)
-            semseg_res = [x for x in self.preds if image_name.replace('png', 'jpg') in x]
+            semseg_res = [x for x in pred if image_name in x]
             if len(semseg_res) == 0:
                 continue
-            pre_png = semseg_res[0][image_name.replace('png', 'jpg')].toarray()
+            pre_png = semseg_res[0][image_name]
             gt_png = self.generate_gt_png(i, image_name, pre_png.shape)
-            
+
             assert gt_png.shape == pre_png.shape, '{} VS {}'.format(str(gt_png.shape), str(pre_png.shape))
             gt = gt_png.flatten()
             pre = pre_png.flatten()
