@@ -23,6 +23,7 @@ import random, cv2, copy
 from .transforms.transform import PadTransform
 
 __all__ = [
+    "filter_instance_by_attributes",
     "flip_human_semantic_category",
     "transform_parsing_instance_annotations",
     "affine_to_target_size",
@@ -30,6 +31,38 @@ __all__ = [
     "center_to_target_size_parsing",
     "center_to_target_size_test",
 ]
+
+
+def filter_instance_by_attributes(dataset_dicts, with_human_ins, with_bkg_ins):
+    annos = dataset_dicts.pop("annotations")
+    """
+             ispart  isfg
+    part  :    1      1
+    human :    0      1
+    bkg   :    0      0
+    """
+
+    new_annos = []
+    if not with_bkg_ins and not with_human_ins:  # discard bkg and human instances
+        for obj in annos:
+            if obj["ispart"] == 1 and obj["isfg"] == 1:
+                obj['category_id'] -= 1
+                new_annos.append(obj)
+    elif with_bkg_ins and not with_human_ins:  # discard human instances
+        for obj in annos:
+            if obj["ispart"] == obj["isfg"]:
+                new_annos.append(obj)
+    elif not with_bkg_ins and with_human_ins:  # discard bkg instances
+        for obj in annos:
+            if obj["isfg"] == 1:
+                if obj["ispart"] == 0:
+                    obj['category_id'] = 0
+                new_annos.append(obj)
+    else: # keep all part, bkg and human instances
+        raise NotImplementedError("Parsing with part, human and bkg instances not implemented yet !!!")
+
+    dataset_dicts["annotations"] = new_annos
+    return dataset_dicts
 
 
 def flip_human_semantic_category(img, gt, flip_map, prob):

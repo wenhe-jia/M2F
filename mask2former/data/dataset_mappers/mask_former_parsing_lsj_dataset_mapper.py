@@ -15,7 +15,7 @@ from detectron2.structures import BitMasks, Instances
 
 from pycocotools import mask as coco_mask
 
-from ..parsing_utils import transform_parsing_instance_annotations
+from ..parsing_utils import filter_instance_by_attributes, transform_parsing_instance_annotations
 
 
 __all__ = ["MaskFormerParsingLSJDatasetMapper"]
@@ -96,6 +96,8 @@ class MaskFormerParsingLSJDatasetMapper:
         *,
         tfm_gens,
         image_format,
+        with_human_instance,
+        with_bkg_instance,
         flip_map,
     ):
         """
@@ -113,6 +115,8 @@ class MaskFormerParsingLSJDatasetMapper:
 
         self.img_format = image_format
         self.is_train = is_train
+        self.with_human_instance = with_bkg_instance
+        self.with_bkg_instance = with_bkg_instance
         self.flip_map = flip_map
     
     @classmethod
@@ -126,6 +130,8 @@ class MaskFormerParsingLSJDatasetMapper:
             "is_train": is_train,
             "tfm_gens": tfm_gens,
             "image_format": cfg.INPUT.FORMAT,
+            "with_human_instance": cfg.MODEL.MASK_FORMER.TEST.PARSING.WITH_HUMAN_INSTANCE,
+            "with_bkg_instance": cfg.MODEL.MASK_FORMER.TEST.PARSING.WITH_BKG_INSTANCE,
             "flip_map": meta.flip_map,
         }
         return ret
@@ -141,6 +147,9 @@ class MaskFormerParsingLSJDatasetMapper:
         dataset_dict = copy.deepcopy(dataset_dict)  # it will be modified by code below
         image = utils.read_image(dataset_dict["file_name"], format=self.img_format)
         utils.check_image_size(dataset_dict, image)
+
+        # filter instance according to attributes and config, maybe change "category_id" of instance
+        dataset_dict = filter_instance_by_attributes(dataset_dict, self.with_human_instance, self.with_bkg_instance)
 
         # TODO: get padding mask
         # by feeding a "segmentation mask" to the same transforms
