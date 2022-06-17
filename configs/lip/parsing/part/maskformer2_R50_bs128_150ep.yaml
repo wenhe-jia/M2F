@@ -1,4 +1,4 @@
-_BASE_: Base-LIP-InstanceSegmentation.yaml
+_BASE_: ../Base-LIP-Parsing.yaml
 MODEL:
   META_ARCHITECTURE: "MaskFormer"
   SEM_SEG_HEAD:
@@ -38,19 +38,19 @@ MODEL:
     IMPORTANCE_SAMPLE_RATIO: 0.75
     TEST:
       SEMANTIC_ON: False
-      INSTANCE_ON: True
+      INSTANCE_ON: False
       PANOPTIC_ON: False
+      PARSING_ON: True
       OVERLAP_THRESHOLD: 0.8
       OBJECT_MASK_THRESHOLD: 0.8
       PARSING:
-        PARSING_ON: True
-        MULTI_HUMAN_PARSING: False
         PARSING_INS_SCORE_THR: 0.3
+        METRICS: ("mIoU", "APr")
 SOLVER:
-  IMS_PER_BATCH: 64  # 16
-  BASE_LR: 0.0004  # 0.0001
-  MAX_ITER: 68000  # 270000  # 150ep, 3x for coco
-  LR_SCHEDULER_NAME: "WarmupPolyLR"
+  IMS_PER_BATCH: 128  # 16
+  BASE_LR: 0.0008  # 0.0001
+  STEPS: (26500, 31500)  # (210000, 250000)
+  MAX_ITER: 34000  # 270000  # 150ep, 3x for coco
 INPUT:
   SINGLE_PARSING:
     SCALES: ([384, 512],)
@@ -58,7 +58,7 @@ INPUT:
     ROTATION: True
     ROT_FACTOR: 40
 TEST:
-  EVAL_PERIOD: 10000
+  EVAL_PERIOD: 2000
   AUG:
     ENABLED: False
     MIN_SIZES: [ 384 ]

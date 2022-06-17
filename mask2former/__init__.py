@@ -18,20 +18,20 @@ from .data.dataset_mappers.mask_former_semantic_dataset_mapper import (
     MaskFormerSemanticDatasetMapper,
 )
 
-from .data.dataset_mappers.mask_former_parsing_instance_dataset_mapper import (
-    MaskFormerParsingInstanceDatasetMapper,
+from .data.dataset_mappers.mask_former_semantic_hp_dataset_mapper import (
+    MaskFormerSemanticHPDatasetMapper,
 )
 
-from .data.dataset_mappers.mask_former_parsing_semantic_dataset_mapper import (
-    MaskFormerParsingSemanticDatasetMapper,
+from .data.dataset_mappers.mask_former_parsing_dataset_mapper import (
+    MaskFormerParsingDatasetMapper,
 )
 
-from .data.dataset_mappers.mask_former_single_parsing_test_dataset_mapper import (
-    MaskFormerSingleParsingTestDatasetMapper,
+from .data.dataset_mappers.mask_former_single_human_test_dataset_mapper import (
+    MaskFormerSingleHumanTestDatasetMapper,
 )
 
-from .data.dataset_mappers.mask_former_parsing_instance_lsj_dataset_mapper import (
-    MaskFormerParsingInstanceLSJDatasetMapper,
+from .data.dataset_mappers.mask_former_parsing_lsj_dataset_mapper import (
+    MaskFormerParsingLSJDatasetMapper,
 )
 
 from .data.build import build_detection_test_loader

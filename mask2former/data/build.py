@@ -28,8 +28,8 @@ from detectron2.data.samplers import (
     TrainingSampler,
 )
 
-from .dataset_mappers.mask_former_single_parsing_test_dataset_mapper import \
-    MaskFormerSingleParsingTestDatasetMapper
+from .dataset_mappers.mask_former_single_human_test_dataset_mapper import \
+    MaskFormerSingleHumanTestDatasetMapper
 
 """
 This file contains the default logic to build a dataloader for training or testing.
@@ -293,10 +293,10 @@ def _test_loader_from_config(cfg, dataset_name, mapper=None):
     )
     
     if mapper is None:
-        if cfg.MODEL.MASK_FORMER.TEST.PARSING.MULTI_HUMAN_PARSING:
-            mapper = DatasetMapper(cfg, False)
+        if "lip" in cfg.DATASETS.TEST[0]:
+            mapper = MaskFormerSingleHumanTestDatasetMapper(cfg, False)
         else:
-            mapper = MaskFormerSingleParsingTestDatasetMapper(cfg, False)
+            mapper = DatasetMapper(cfg, False)
 
     return {
         "dataset": dataset,

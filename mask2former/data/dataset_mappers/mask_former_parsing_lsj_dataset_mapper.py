@@ -7,6 +7,7 @@ import numpy as np
 import torch
 
 from detectron2.config import configurable
+from detectron2.data import MetadataCatalog
 from detectron2.data import detection_utils as utils
 from detectron2.data import transforms as T
 from detectron2.data.transforms import TransformGen
@@ -14,10 +15,10 @@ from detectron2.structures import BitMasks, Instances
 
 from pycocotools import mask as coco_mask
 
-from ..parsing_utils import get_parsing_flip_map, transform_parsing_instance_annotations
+from ..parsing_utils import transform_parsing_instance_annotations
 
 
-__all__ = ["MaskFormerParsingInstanceLSJDatasetMapper"]
+__all__ = ["MaskFormerParsingLSJDatasetMapper"]
 
 
 def convert_coco_poly_to_mask(segmentations, height, width):
@@ -70,7 +71,7 @@ def build_transform_gen(cfg, is_train):
 
 
 # This is specifically designed for the COCO dataset.
-class MaskFormerParsingInstanceLSJDatasetMapper:
+class MaskFormerParsingLSJDatasetMapper:
     """
     A callable which takes a dataset dict in Detectron2 Dataset format,
     and map it into a format used by MaskFormer.
@@ -95,7 +96,7 @@ class MaskFormerParsingInstanceLSJDatasetMapper:
         *,
         tfm_gens,
         image_format,
-        parsing_flip_map,
+        flip_map,
     ):
         """
         NOTE: this interface is experimental.
@@ -112,18 +113,20 @@ class MaskFormerParsingInstanceLSJDatasetMapper:
 
         self.img_format = image_format
         self.is_train = is_train
-        self.parsing_flip_map = parsing_flip_map
+        self.flip_map = flip_map
     
     @classmethod
     def from_config(cls, cfg, is_train=True):
         # Build augmentation
         tfm_gens = build_transform_gen(cfg, is_train)
 
+        meta = MetadataCatalog.get(cfg.DATASETS.TRAIN[0])
+
         ret = {
             "is_train": is_train,
             "tfm_gens": tfm_gens,
             "image_format": cfg.INPUT.FORMAT,
-            "parsing_flip_map": get_parsing_flip_map(cfg.DATASETS.TRAIN),
+            "flip_map": meta.flip_map,
         }
         return ret
 

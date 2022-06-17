@@ -44,7 +44,7 @@ INPUT:
     SINGLE_CATEGORY_MAX_AREA: 1.0
   COLOR_AUG_SSD: True
   FORMAT: "RGB"
-  DATASET_MAPPER_NAME: "mask_former_parsing_semantic"
+  DATASET_MAPPER_NAME: "mask_former_semantic_hp"
 TEST:
   EVAL_PERIOD: 10000
   AUG:

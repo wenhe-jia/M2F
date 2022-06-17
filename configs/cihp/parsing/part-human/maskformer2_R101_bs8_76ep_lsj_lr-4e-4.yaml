@@ -12,19 +12,19 @@ MODEL:
 SOLVER:
   IMS_PER_BATCH: 8  # 16
   BASE_LR: 0.0004 # 0.0001, normalized zoom to 0.00005 with batch_size 8
-  STEPS: (477000, 504000)  # (105000, 125000)
-  MAX_ITER: 530000  # 135000  # 1.5x for coco_2017_train
+  STEPS: (210000, 250000)  # (105000, 125000)
+  MAX_ITER: 270000  # 135000  # 1.5x for coco_2017_train
 INPUT:
   IMAGE_SIZE: 640
   MIN_SCALE: 0.1
   MAX_SCALE: 2.0
   FORMAT: "RGB"
-  DATASET_MAPPER_NAME: "mask_former_parsing_instance_lsj"
-  MIN_SIZE_TEST: 640
+  DATASET_MAPPER_NAME: "mask_former_parsing_lsj"
+  MIN_SIZE_TEST: 800
 TEST:
   EVAL_PERIOD: 30000
   AUG:
     ENABLED: False
-    MIN_SIZES: (640,)
+    MIN_SIZES: (800,)
     MAX_SIZE: 1400
     FLIP: True

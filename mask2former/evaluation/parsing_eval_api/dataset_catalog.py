@@ -41,37 +41,7 @@ COMMON_DATASETS = {
             },
         },
     },
-    'cihp_part_instance_val': {
-        _IM_DIR: _DATA_DIR + '/CIHP/Validation/Images',
-        _ANN_FN: _DATA_DIR + '/CIHP/annotations/CIHP_val.json',
-        _ANN_TYPES: ('bbox', 'mask', 'parsing', 'semseg'),
-        _ANN_FIELDS: {
-            'num_images': 5000,
-            'bbox': {
-                'num_classes': 1,  # only person
-                'num_instances': 17520,
-            },
-            'mask': {
-                'num_classes': 1,  # only person
-                'num_instances': 17520,
-            },
-            'parsing': {
-                'num_classes': 20,
-                'num_instances': 17520,
-                'flip_map': ((14, 15), (16, 17), (18, 19)),
-            },
-            'semseg': {
-                'num_classes': 20,
-                'num_instances': -1,  # no statistics
-                'seg_root': _DATA_DIR + '/CIHP/Validation/Category_ids',
-                'flip_map': ((14, 15), (16, 17), (18, 19)),
-                'ignore_label': 255,
-                'label_shift': 0,
-                'semseg_format': 'mask',
-            },
-        },
-    },
-    'cihp_united_instance_val': {
+    'cihp_parsing_val': {
         _IM_DIR: _DATA_DIR + '/CIHP/Validation/Images',
         _ANN_FN: _DATA_DIR + '/CIHP/annotations/CIHP_val.json',
         _ANN_TYPES: ('bbox', 'mask', 'parsing', 'semseg'),
@@ -131,7 +101,7 @@ COMMON_DATASETS = {
             },
         },
     },
-    'lip_part_instance_val': {
+    'lip_parsing_val': {
         _IM_DIR: _DATA_DIR + '/LIP/Validation/Images',
         _ANN_FN: _DATA_DIR + '/LIP/annotations/LIP_val.json',
         _ANN_TYPES: ('bbox', 'mask', 'parsing', 'semseg'),
@@ -161,67 +131,7 @@ COMMON_DATASETS = {
             },
         },
     },
-    'lip_united_instance_val': {
-        _IM_DIR: _DATA_DIR + '/LIP/Validation/Images',
-        _ANN_FN: _DATA_DIR + '/LIP/annotations/LIP_val.json',
-        _ANN_TYPES: ('bbox', 'mask', 'parsing', 'semseg'),
-        _ANN_FIELDS: {
-            'num_images': 10000,
-            'bbox': {
-                'num_classes': 1,  # only person
-                'num_instances': 10000,
-            },
-            'mask': {
-                'num_classes': 1,  # only person
-                'num_instances': 10000,
-            },
-            'parsing': {
-                'num_classes': 20,
-                'num_instances': -1,  # no statistics
-                'flip_map': ((14, 15), (16, 17), (18, 19)),
-            },
-            'semseg': {
-                'num_classes': 20,
-                'num_instances': -1,  # no statistics
-                'seg_root': _DATA_DIR + '/LIP/Validation/Category_ids',
-                'flip_map': ((14, 15), (16, 17), (18, 19)),
-                'ignore_label': 255,
-                'label_shift': 0,
-                'semseg_format': 'mask',
-            },
-        },
-    },
-    "lip_instance_val": {
-        _IM_DIR: _DATA_DIR + '/LIP/Validation/Images',
-        _ANN_FN: _DATA_DIR + '/LIP/annotations/LIP_val.json',
-        _ANN_TYPES: ('bbox', 'mask', 'parsing', 'semseg'),
-        _ANN_FIELDS: {
-            'num_images': 10000,
-            'bbox': {
-                'num_classes': 1,  # only person
-                'num_instances': 10000,
-            },
-            'mask': {
-                'num_classes': 1,  # only person
-                'num_instances': 10000,
-            },
-            'parsing': {
-                'num_classes': 20,
-                'num_instances': -1,  # no statistics
-                'flip_map': ((14, 15), (16, 17), (18, 19)),
-            },
-            'semseg': {
-                'num_classes': 20,
-                'num_instances': -1,  # no statistics
-                'seg_root': _DATA_DIR + '/LIP/Validation/Category_ids',
-                'flip_map': ((14, 15), (16, 17), (18, 19)),
-                'ignore_label': 255,
-                'label_shift': 0,
-                'semseg_format': 'mask',
-            },
-        },
-    },
-    "mhpv2_united_instance_val": {
+    "mhpv2_parsing_val": {
         _IM_DIR: _DATA_DIR + '/MHP-v2/Validation/Images',
         _ANN_FN: _DATA_DIR + '/MHP-v2/annotations/LIP_val.json',
         _ANN_TYPES: ('bbox', 'mask', 'parsing', 'semseg'),

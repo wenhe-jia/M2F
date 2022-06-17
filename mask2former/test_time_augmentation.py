@@ -22,17 +22,17 @@ from pycocotools import mask as maskUtils
 from detectron2.config import configurable
 from detectron2.data import MetadataCatalog
 
-from .data.parsing_utils import get_parsing_flip_map
 from .utils.utils import predictions_supress, predictions_merge, parsing_nms
 
 __all__ = [
     "ParsingSemanticSegmentorWithTTA",
-    "SingleParsingDatasetMapperTTA",
+    "SingleHumanDatasetMapperTTA",
     "SemanticSegmentorWithTTA",
 ]
 
+HUMAN_PARSING_DATASETS = ["cihp", "mhp", "lip",]
 
-class SingleParsingDatasetMapperTTA:
+class SingleHumanDatasetMapperTTA:
     """
     Implement test-time augmentation for detection data.
     It is a callable which takes a dataset dict from a detection dataset,
@@ -95,7 +95,7 @@ class ParsingWithTTA(nn.Module):
     Its :meth:`__call__` method has the same interface as :meth:`SemanticSegmentor.forward`.
     """
 
-    def __init__(self, cfg, model, tta_mapper=None, batch_size=1):
+    def __init__(self, cfg, model, tta_mapper=None, batch_size=1, merge_mode='supress'):
         """
         Args:
             cfg (CfgNode):
@@ -109,32 +109,20 @@ class ParsingWithTTA(nn.Module):
         if isinstance(model, DistributedDataParallel):
             model = model.module
         self.cfg = cfg.clone()
-        self.flip_map = get_parsing_flip_map(self.cfg.DATASETS.TEST)
+        self.flip_map = MetadataCatalog.get(self.cfg.DATASETS.TEST[0]).flip_map
         self.model = model
+        self.merge_mode = merge_mode
 
         if tta_mapper is None:
             if "lip" in cfg.DATASETS.TEST[0]:
-                tta_mapper = SingleParsingDatasetMapperTTA(cfg)
+                tta_mapper = SingleHumanDatasetMapperTTA(cfg)
             else:
                 tta_mapper = DatasetMapperTTA(cfg)
 
         self.tta_mapper = tta_mapper
         self.batch_size = batch_size
 
-        metadata = MetadataCatalog.get(self.cfg.DATASETS.TEST[0])
-        if metadata.evaluator_type == "sem_seg":
-            num_parsing = len(metadata.stuff_classes)
-        elif metadata.evaluator_type == "coco":
-            classes = metadata.thing_classes
-            if "Person" in classes or "Background" in classes:
-                num_parsing = len(metadata.thing_classes)
-            else:
-                num_parsing = len(metadata.thing_classes) + 1
-        else:
-            raise NotImplementedError(
-                "Need to set num parsing !!!"
-            )
-        self.num_parsing = num_parsing
+        self.num_parsing = MetadataCatalog.get(self.cfg.DATASETS.TEST[0]).num_parisng
 
     def __call__(self, batched_inputs):
         """
@@ -168,7 +156,6 @@ class ParsingWithTTA(nn.Module):
         orig_shape = (input["height"], input["width"])
         augmented_inputs, tfms = self._get_augmented_inputs(input)
 
-        # semantic TTA
         final_semantic_predictions = None
         all_part_predictions = {}
         all_human_predictions = {}
@@ -188,10 +175,12 @@ class ParsingWithTTA(nn.Module):
                         flipped_human_predictions = model_out['human_outputs']
                         flipped_parsing_predictions = model_out['parsing_outputs']
 
-                        parsing_predictions = self.flip_parsings_back(flipped_parsing_predictions)
-                        part_predictions = self.flip_parsing_instance_back(flipped_part_predictions)
-                        human_predictions = self.flip_parsing_instance_back(flipped_human_predictions, 'human')
-                        final_semantic_predictions = self.flip_parsing_semantic_back(flipped_semantic_predictions)
+                        parsing_predictions = self.flip_parsing_back(flipped_parsing_predictions) \
+                            if len(flipped_parsing_predictions) > 0 else []
+                        part_predictions = self.flip_instance_back(flipped_part_predictions)
+                        human_predictions = self.flip_instance_back(flipped_human_predictions, 'human') \
+                            if len(flipped_human_predictions) > 0 else []
+                        final_semantic_predictions = self.flip_semantic_back(flipped_semantic_predictions)
                     else:
                         final_semantic_predictions = model_out['semseg_outputs']
                         part_predictions = model_out['part_outputs']
@@ -204,10 +193,12 @@ class ParsingWithTTA(nn.Module):
                         flipped_human_predictions = model_out['human_outputs']
                         flipped_parsing_predictions = model_out['parsing_outputs']
 
-                        parsing_predictions = self.flip_parsings_back(flipped_parsing_predictions)
-                        part_predictions = self.flip_parsing_instance_back(flipped_part_predictions)
-                        human_predictions = self.flip_parsing_instance_back(flipped_human_predictions, 'human')
-                        final_semantic_predictions += self.flip_parsing_semantic_back(flipped_predictions)
+                        parsing_predictions = self.flip_parsing_back(flipped_parsing_predictions) \
+                            if len(flipped_parsing_predictions) > 0 else []
+                        part_predictions = self.flip_instance_back(flipped_part_predictions)
+                        human_predictions = self.flip_instance_back(flipped_human_predictions, 'human') \
+                            if len(flipped_human_predictions) > 0 else []
+                        final_semantic_predictions += self.flip_semantic_back(flipped_predictions)
                     else:
                         final_semantic_predictions += model_out['semseg_outputs']
                         part_predictions = model_out['part_outputs']
@@ -234,14 +225,25 @@ class ParsingWithTTA(nn.Module):
                     parsings.append(parsing_prediction['parsing'])
                     parsing_instance_scores.append(parsing_prediction['instance_score'])
 
-        final_semantic_predictions = final_semantic_predictions / count_predictions
-        final_part_predictions = predictions_supress(all_part_predictions)
-        final_human_predictions = predictions_supress(all_human_predictions)
+        # merge predictions from different augmentations
+        final_semantic_predictions = final_semantic_predictions.cpu() / count_predictions
+        if self.merge_mode == "supress":
+            final_part_predictions = predictions_supress(all_part_predictions)
+            final_human_predictions = predictions_supress(all_human_predictions) \
+                if len(all_human_predictions) > 0 else []
+        elif self.merge_mode == "merge":
+            final_part_predictions = predictions_merge(all_part_predictions)
+            final_human_predictions = predictions_merge(all_human_predictions) \
+                if len(all_human_predictions) > 0 else []
+        else:
+            raise NotImplementedError(
+                "Have not implement other merge method, e.g. simply collect al results."
+            )
 
         final_parsing_predictions = []
         final_parsings, final_parsing_instance_scores = parsing_nms(
             np.array(parsings), np.array(parsing_instance_scores), num_parsing=self.num_parsing
-        )
+        ) if len(parsing_instance_scores) > 0 else ([], [])
         for final_parsing, final_parsing_instance_score in zip(final_parsings, final_parsing_instance_scores):
             final_parsing_predictions.append(
                 {
@@ -252,7 +254,7 @@ class ParsingWithTTA(nn.Module):
 
         return {
             "parsing": {
-                "semseg_outputs": final_semantic_predictions.cpu(),
+                "semseg_outputs": final_semantic_predictions,
                 "parsing_outputs": final_parsing_predictions,
                 "part_outputs": final_part_predictions,
                 "human_outputs": final_human_predictions
@@ -264,7 +266,7 @@ class ParsingWithTTA(nn.Module):
         tfms = [x.pop("transforms") for x in augmented_inputs]
         return augmented_inputs, tfms
 
-    def flip_parsing_semantic_back(self, predictions):
+    def flip_semantic_back(self, predictions):
         spatial_flipback_predictions = predictions.flip(dims=[2])
         spatial_channel_flipback_predictions = copy.deepcopy(spatial_flipback_predictions)
 
@@ -278,7 +280,7 @@ class ParsingWithTTA(nn.Module):
 
         return spatial_channel_flipback_predictions
 
-    def flip_parsing_instance_back(self, predictions, instance_type='part'):
+    def flip_instance_back(self, predictions, instance_type='part'):
         for prediction in predictions:
             prediction['mask'] = prediction['mask'].flip(dims=[1])
             if instance_type in ['part']:
@@ -289,7 +291,7 @@ class ParsingWithTTA(nn.Module):
                     prediction['category_id'] = flip_map_dict[prediction['category_id']]
         return predictions
 
-    def flip_parsings_back(self, predictions):
+    def flip_parsing_back(self, predictions):
         for prediction in predictions:
             prediction['parsing'] = prediction['parsing'].flip(dims=[1])
 
@@ -320,13 +322,23 @@ class SemanticSegmentorWithTTA(nn.Module):
         if isinstance(model, DistributedDataParallel):
             model = model.module
         self.cfg = cfg.clone()
-
         self.model = model
 
         if tta_mapper is None:
-            tta_mapper = DatasetMapperTTA(cfg)
+            if "lip" in cfg.DATASETS.TEST[0]:
+                tta_mapper = SingleHumanDatasetMapperTTA(cfg)
+            else:
+                tta_mapper = DatasetMapperTTA(cfg)
+
         self.tta_mapper = tta_mapper
         self.batch_size = batch_size
+
+        self.human_semseg = False
+        for dataset_name in HUMAN_PARSING_DATASETS:
+            if dataset_name in cfg.DATASETS.TEST[0]:
+                self.human_semseg = True
+                self.flip_map = get_parsing_flip_map(cfg.DATASETS.TEST[0])
+                break
 
     def __call__(self, batched_inputs):
         """
@@ -367,12 +379,20 @@ class SemanticSegmentorWithTTA(nn.Module):
             with torch.no_grad():
                 if final_predictions is None:
                     if any(isinstance(t, HFlipTransform) for t in tfm.transforms):
-                        final_predictions = self.model([input])[0].pop("sem_seg").flip(dims=[2])
+                        predictions = self.model([input])[0].pop("sem_seg")
+                        if self.human_semseg:
+                            final_predictions = self.flip_human_semantic_back(predictions)
+                        else:
+                            final_predictions = predictions.flip(dims=[2])
                     else:
                         final_predictions = self.model([input])[0].pop("sem_seg")
                 else:
                     if any(isinstance(t, HFlipTransform) for t in tfm.transforms):
-                        final_predictions += self.model([input])[0].pop("sem_seg").flip(dims=[2])
+                        predictions = self.model([input])[0].pop("sem_seg")
+                        if self.human_semseg:
+                            final_predictions += self.flip_human_semantic_back(predictions)
+                        else:
+                            final_predictions += predictions.flip(dims=[2])
                     else:
                         final_predictions += self.model([input])[0].pop("sem_seg")
 
@@ -383,3 +403,17 @@ class SemanticSegmentorWithTTA(nn.Module):
         augmented_inputs = self.tta_mapper(input)
         tfms = [x.pop("transforms") for x in augmented_inputs]
         return augmented_inputs, tfms
+
+    def flip_human_semantic_back(self, predictions):
+        spatial_flipback_predictions = predictions.flip(dims=[2])
+        spatial_channel_flipback_predictions = copy.deepcopy(spatial_flipback_predictions)
+
+        # channel transaction to flip human part label
+        for ori_label, new_label in self.flip_map:
+            org_channel = spatial_flipback_predictions[ori_label, :, :]
+            new_channel = spatial_flipback_predictions[new_label, :, :]
+
+            spatial_channel_flipback_predictions[new_label, :, :] = org_channel
+            spatial_channel_flipback_predictions[ori_label, :, :] = new_channel
+
+        return spatial_channel_flipback_predictions

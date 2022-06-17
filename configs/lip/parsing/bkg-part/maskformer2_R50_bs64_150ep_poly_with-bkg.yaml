@@ -1,4 +1,4 @@
-_BASE_: Base-CIHP-UnitedInstanceSegmentation.yaml
+_BASE_: ../Base-LIP-Parsing.yaml
 MODEL:
   META_ARCHITECTURE: "MaskFormer"
   SEM_SEG_HEAD:
@@ -40,24 +40,28 @@ MODEL:
       SEMANTIC_ON: False
       INSTANCE_ON: True
       PANOPTIC_ON: False
+      PARSING_ON: True
       OVERLAP_THRESHOLD: 0.8
       OBJECT_MASK_THRESHOLD: 0.8
       PARSING:
-        PARSING_ON: True
-        WITH_HUMAN_INSTANCE: True
+        WITH_BKG_INSTANCE: True
         PARSING_INS_SCORE_THR: 0.3
-        IOP_THR: 0.6
+        METRICS: ("mIoU", "APr")
 SOLVER:
-  IMS_PER_BATCH: 8  # 16
-  BASE_LR: 0.00005 # 0.0001
-  STEPS: (210000, 250000)  # (105000, 125000)
-  MAX_ITER: 270000  # 135000  # 1.5x for coco_2017_train
+  IMS_PER_BATCH: 64  # 16
+  BASE_LR: 0.0004  # 0.0001
+  MAX_ITER: 70000  # 270000  # 150ep, 3x for coco
+  LR_SCHEDULER_NAME: "WarmupPolyLR"
 INPUT:
-  MIN_SIZE_TEST: 800
+  SINGLE_PARSING:
+    SCALES: ([384, 512],)
+    SCALE_FACTOR: 0.3
+    ROTATION: True
+    ROT_FACTOR: 40
 TEST:
   EVAL_PERIOD: 30000
   AUG:
     ENABLED: False
-    MIN_SIZES: (640,)
+    MIN_SIZES: [ 384 ]
     MAX_SIZE: 1400
     FLIP: True

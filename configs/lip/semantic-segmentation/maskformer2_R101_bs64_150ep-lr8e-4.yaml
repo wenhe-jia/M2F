@@ -16,9 +16,6 @@ MODEL:
       PANOPTIC_ON: False
       OVERLAP_THRESHOLD: 0.8
       OBJECT_MASK_THRESHOLD: 0.8
-      PARSING:
-        PARSING_ON: True
-        MULTI_HUMAN_PARSING: False
 SOLVER:
   IMS_PER_BATCH: 64 # 16
   BASE_LR: 0.0008  # 0.0001
@@ -26,9 +23,9 @@ SOLVER:
   WARMUP_ITERS: 1000
   WARMUP_FACTOR: 0.001
 INPUT:
-  DATASET_MAPPER_NAME: "mask_former_parsing_semantic"
-  SINGLE_PARSING:
-    SCALES: ([384, 512],)
+  DATASET_MAPPER_NAME: "mask_former_semantic"
+  SINGLE_HUMAN:
+    SIZES: ([384, 512],)
     SCALE_FACTOR: 0.3
     ROTATION: True
     ROT_FACTOR: 40

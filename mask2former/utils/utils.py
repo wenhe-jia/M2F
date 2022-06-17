@@ -1,12 +1,27 @@
 import numpy as np
 import torch
-from pycocotools import mask as maskUtils
+from pycocotools import mask as mask_util
 
 __all__ = [
+    "compute_parsing_IoP",
     'predictions_supress',
     'predictions_merge',
     'parsing_nms',
 ]
+
+def compute_parsing_IoP(person_binary_mask, part_binary_mask):
+    # both person_binary_mask and part_binary_mask are binary mask in shape (H, W)
+    person = person_binary_mask.cpu()[:, :, None]
+    person = mask_util.encode(np.array(person, order="F", dtype="uint8"))[0]
+    person["counts"] = person["counts"].decode("utf-8")
+
+    part = part_binary_mask.cpu()[:, :, None]
+    part = mask_util.encode(np.array(part, order="F", dtype="uint8"))[0]
+    part["counts"] = part["counts"].decode("utf-8")
+
+    area_part = mask_util.area(part)
+    i = mask_util.area(mask_util.merge([person, part], True))
+    return i / area_part
 
 
 def msk2rle(maskin):
@@ -15,7 +30,7 @@ def msk2rle(maskin):
     :return:
     '''
     mask = maskin > 0
-    _rle = maskUtils.encode(np.array(mask[:, :, None], order="F", dtype="uint8"))[0]
+    _rle = mask_util.encode(np.array(mask[:, :, None], order="F", dtype="uint8"))[0]
     _rle["counts"] = _rle["counts"].decode("utf-8")
     return _rle
 
@@ -78,7 +93,7 @@ def predictions_merge(catdict_in, IOU_thr=0.5):
 
                         rle_2 = v['rle'][j]
 
-                        iou = maskUtils.iou([rle_1], [rle_2], [False])
+                        iou = mask_util.iou([rle_1], [rle_2], [False])
                         v['scores'][j] *= np.exp(-iou ** 2 / 0.5)
 
                         if iou >= IOU_thr:
@@ -130,7 +145,7 @@ def predictions_supress(catdict_in, score_thr=0.3):
                     for j in range(i + 1, len(v['masks'])):
                         rle_2 = v['rle'][j]
 
-                        iou = maskUtils.iou([rle_1], [rle_2], [False])
+                        iou = mask_util.iou([rle_1], [rle_2], [False])
                         v['scores'][j] *= np.exp(-iou ** 2 / 0.5)
 
             keep_idx = np.where(v['scores'] > score_thr)

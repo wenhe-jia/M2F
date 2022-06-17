@@ -82,7 +82,7 @@ class ParsingEval(object):
             ann_ids = self.parsingGt.coco.getAnnIds(imgIds=image_id, iscrowd=None)
             objs = self.parsingGt.coco.loadAnns(ann_ids)
             # gt_box = []
-            parsing_ids = [obj["parsing_id"] for obj in objs if obj['category_id'] == 0]
+            parsing_ids = [obj["parsing_id"] for obj in objs if obj['category_id'] == self.num_parsing]
             anno_adds = get_parsing(
                 self.parsingGt.root, self.parsingGt.coco.loadImgs(image_id)[0]['file_name'], parsing_ids
             )

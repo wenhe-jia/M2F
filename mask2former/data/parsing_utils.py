@@ -19,29 +19,20 @@ from detectron2.structures import (
 from detectron2.data import transforms as T
 from detectron2.data import MetadataCatalog
 from fvcore.transforms.transform import CropTransform
-from pycocotools import mask as maskUtils
 import random, cv2, copy
 from .transforms.transform import PadTransform
 
 __all__ = [
-    "get_parsing_flip_map",
-    "flip_parsing_semantic_category",
+    "flip_human_semantic_category",
     "transform_parsing_instance_annotations",
-    "flip_parsing_instance_category",
-    "compute_parsing_IoP",
     "affine_to_target_size",
-    "center_to_target_size_semseg",
-    "center_to_target_size_instance",
+    "center_to_target_size_semantic",
+    "center_to_target_size_parsing",
     "center_to_target_size_test",
 ]
 
 
-def get_parsing_flip_map(dataset_names):
-    meta = MetadataCatalog.get(dataset_names[0])
-    return meta.flip_map
-
-
-def flip_parsing_semantic_category(img, gt, flip_map, prob):
+def flip_human_semantic_category(img, gt, flip_map, prob):
     do_hflip = random.random() < prob
     if do_hflip:
         img = np.flip(img, axis=1)
@@ -55,9 +46,7 @@ def flip_parsing_semantic_category(img, gt, flip_map, prob):
     return img, gt
 
 
-def transform_parsing_instance_annotations(
-    annotation, transforms, image_size, *, parsing_flip_map=None
-):
+def transform_parsing_instance_annotations(annotation, transforms, image_size, flip_map):
     """
     Apply transforms to box and segmentation of a single human part instance.
 
@@ -71,7 +60,7 @@ def transform_parsing_instance_annotations(
             It will be modified in-place.
         transforms (TransformList or list[Transform]):
         image_size (tuple): the height, width of the transformed image
-        parsing_flip_map (tuple(int, int)): hflip label map.
+        flip_map (tuple(int, int)): hflip label map.
 
     Returns:
         dict:
@@ -99,8 +88,8 @@ def transform_parsing_instance_annotations(
             ]
 
             # change part label if do h_flip
-            annotation["category_id"] = flip_parsing_instance_category(
-                annotation["category_id"], transforms, parsing_flip_map
+            annotation["category_id"] = flip_human_instance_category(
+                annotation["category_id"], transforms, flip_map
             )
         elif isinstance(segm, dict):
             # RLE
@@ -110,8 +99,8 @@ def transform_parsing_instance_annotations(
             annotation["segmentation"] = mask
 
             # change part label if do h_flip
-            annotation["category_id"] = flip_parsing_instance_category(
-                annotation["category_id"], transforms, parsing_flip_map
+            annotation["category_id"] = flip_human_instance_category(
+                annotation["category_id"], transforms, flip_map
             )
         else:
             raise ValueError(
@@ -123,7 +112,7 @@ def transform_parsing_instance_annotations(
     return annotation
 
 
-def flip_parsing_instance_category(category, transforms, flip_map):
+def flip_human_instance_category(category, transforms, flip_map):
     do_hflip = sum(isinstance(t, T.HFlipTransform) for t in transforms.transforms) % 2 == 1  # bool
 
     if do_hflip:
@@ -133,21 +122,6 @@ def flip_parsing_instance_category(category, transforms, flip_map):
             elif category == new_label:
                 category = ori_label
     return category
-
-
-def compute_parsing_IoP(person_binary_mask, part_binary_mask):
-    # both person_binary_mask and part_binary_mask are binary mask in shape (H, W)
-    person = person_binary_mask.cpu()[:, :, None]
-    person = mask_util.encode(np.array(person, order="F", dtype="uint8"))[0]
-    person["counts"] = person["counts"].decode("utf-8")
-
-    part = part_binary_mask.cpu()[:, :, None]
-    part = mask_util.encode(np.array(part, order="F", dtype="uint8"))[0]
-    part["counts"] = part["counts"].decode("utf-8")
-
-    area_part = maskUtils.area(part)
-    i = maskUtils.area(maskUtils.merge([person, part], True))
-    return i / area_part
 
 
 def affine_to_target_size(img, gt, target_size):
@@ -227,7 +201,7 @@ def change_aspect_ratio(w, h, aspect_ratio):
     return w, h
 
 
-def center_to_target_size_semseg(img, gt, target_size):
+def center_to_target_size_semantic(img, gt, target_size):
     assert img.shape[:2] == gt.shape
     tfmd_h, tfmd_w = img.shape[0], img.shape[1]
 
@@ -265,7 +239,7 @@ def center_to_target_size_semseg(img, gt, target_size):
     return new_image, new_gt
 
 
-def center_to_target_size_instance(img, annos, target_size):
+def center_to_target_size_parsing(img, annos, target_size):
     """
     Use detectron2.data.transforms.ExtentTransform and fvcore.transforms.transform.CropTransform to
     adapt the image and instance annos(bbox and polygon) to target output size.

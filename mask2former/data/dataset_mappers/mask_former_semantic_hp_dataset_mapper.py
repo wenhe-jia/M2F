@@ -15,13 +15,13 @@ from detectron2.structures import BitMasks, Instances
 
 import random, cv2, os
 from PIL import Image
-from ..parsing_utils import flip_parsing_semantic_category, center_to_target_size_semseg, affine_to_target_size
+from ..parsing_utils import flip_human_semantic_category, center_to_target_size_semantic, affine_to_target_size
 from ..transforms.augmentation_impl import ResizeByAspectRatio, ResizeByScale, RandomCenterRotation
 
-__all__ = ["MaskFormerParsingSemanticDatasetMapper"]
+__all__ = ["MaskFormerSemanticHPDatasetMapper"]
 
 
-class MaskFormerParsingSemanticDatasetMapper:
+class MaskFormerSemanticHPDatasetMapper:
     """
     A callable which takes a dataset dict in Detectron2 Dataset format,
     and map it into a format used by MaskFormer for semantic segmentation.
@@ -39,13 +39,13 @@ class MaskFormerParsingSemanticDatasetMapper:
         self,
         is_train=True,
         *,
-        multi_person_parsing,
-        train_size,
         augmentations,
         image_format,
         ignore_label,
         size_divisibility,
-        parsing_flip_map
+        flip_map,
+        single_human_aug,
+        train_size,
     ):
         """
         NOTE: this interface is experimental.
@@ -57,31 +57,32 @@ class MaskFormerParsingSemanticDatasetMapper:
             size_divisibility: pad image size to be divisible by this value
         """
         self.is_train = is_train
-        self.multi_person_parsing = multi_person_parsing
         self.tfm_gens = augmentations
         self.img_format = image_format
         self.ignore_label = ignore_label
         self.size_divisibility = size_divisibility
-        self.parsing_flip_map = parsing_flip_map
+        self.flip_map = flip_map
+        self.single_human_aug = single_human_aug
 
         logger = logging.getLogger(__name__)
         mode = "training" if is_train else "inference"
         logger.info(f"[{self.__class__.__name__}] Augmentations used in {mode}: {augmentations}")
 
         self.hflip_prob = 0.5
-        # w, h, when multi person parsing, train_size = None
-        self.train_size = train_size
+
+        if self.single_human_aug:
+            self.train_size = train_size
 
     @classmethod
     def from_config(cls, cfg, is_train=True):
-        # decide whether to parse multi person
-        multi_person_parsing = True
+        # Build augmentation
+
+        single_human_aug = False
         train_size = None
 
-        # Build augmentation
         if "lip" in cfg.DATASETS.TRAIN[0]:
             # for single person human parsing, e.g. LIP and ATR
-            multi_person_parsing = False
+            single_human_aug = True
 
             train_size = cfg.INPUT.SINGLE_PARSING.SCALES[0]
             scale_factor = cfg.INPUT.SINGLE_PARSING.SCALE_FACTOR
@@ -117,18 +118,17 @@ class MaskFormerParsingSemanticDatasetMapper:
                 augs.append(ColorAugSSDTransform(img_format=cfg.INPUT.FORMAT))
 
         # Assume always applies to the training set.
-        dataset_names = cfg.DATASETS.TRAIN
-        meta = MetadataCatalog.get(dataset_names[0])
+        meta = MetadataCatalog.get(cfg.DATASETS.TRAIN[0])
 
         ret = {
             "is_train": is_train,
-            "multi_person_parsing": multi_person_parsing,
-            "train_size": train_size,
             "augmentations": augs,
             "image_format": cfg.INPUT.FORMAT,
             "ignore_label": meta.ignore_label,
             "size_divisibility": cfg.INPUT.SIZE_DIVISIBILITY,
-            "parsing_flip_map": meta.flip_map
+            "flip_map": meta.flip_map,
+            "single_human_aug": single_human_aug,
+            "train_size": train_size
         }
         return ret
 
@@ -160,25 +160,24 @@ class MaskFormerParsingSemanticDatasetMapper:
             )
 
         # perform augmentation
-        if self.multi_person_parsing:
+        if not self.single_human_aug:
             aug_input = T.AugInput(image, sem_seg=sem_seg_gt)
             aug_input, transforms = T.apply_transform_gens(self.tfm_gens, aug_input)
             image = aug_input.image
             sem_seg_gt = aug_input.sem_seg
-            image, sem_seg_gt = flip_parsing_semantic_category(
-                image, sem_seg_gt, self.parsing_flip_map, self.hflip_prob
+            image, sem_seg_gt = flip_human_semantic_category(
+                image, sem_seg_gt, self.flip_map, self.hflip_prob
             )
         else:
-            image, sem_seg_gt = flip_parsing_semantic_category(
-                image, sem_seg_gt, self.parsing_flip_map, self.hflip_prob
+            image, sem_seg_gt = flip_human_semantic_category(
+                image, sem_seg_gt, self.flip_map, self.hflip_prob
             )
             aug_input = T.AugInput(image, sem_seg=sem_seg_gt)
             aug_input, transforms = T.apply_transform_gens(self.tfm_gens, aug_input)
             image = aug_input.image
             sem_seg_gt = aug_input.sem_seg
 
-            image, sem_seg_gt = center_to_target_size_semseg(image, sem_seg_gt, self.train_size)
-            # image, sem_seg_gt = affine_to_target_size(image, sem_seg_gt, self.train_size)
+            image, sem_seg_gt = center_to_target_size_semantic(image, sem_seg_gt, self.train_size)
 
         # Pad image and segmentation label here!
         image = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))
