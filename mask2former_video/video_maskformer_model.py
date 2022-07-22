@@ -256,6 +256,62 @@ class VideoMaskFormer(nn.Module):
         if len(pred_cls) > 0:
             scores = F.softmax(pred_cls, dim=-1)[:, :-1]
             labels = torch.arange(self.sem_seg_head.num_classes, device=self.device).unsqueeze(0).repeat(self.num_queries, 1).flatten(0, 1)
+
+            '''
+            For segmentation quality compution, only compute instance pixel score of each object sequences over
+            semseg masks of all frames. 
+            '''
+            PIXEL_LOGITS_SCORE_TH = 0.35
+
+            mask_logits = pred_masks.sigmoid()
+
+            # ############### QAM parsing, PIXEL_LOGITS_SCORE_TH = 0.2(QANet default) ###############
+            # # high confidence mask (hcm)
+            # inst_hcm_crs_frms = (mask_logits > PIXEL_LOGITS_SCORE_TH).to(dtype=torch.bool)  # [num_query, num_frame, H, W]
+            #
+            # # high confidence value (hcv)
+            # inst_hcv_crs_frms = torch.sum(mask_logits * inst_hcm_crs_frms, dim=[2, 3]).to(dtype=torch.float32)  # [num_query, num_frame]
+            # inst_hcm_num_crs_frms = torch.clamp(
+            #     torch.sum(inst_hcm_crs_frms, dim=[2, 3]
+            # ).to(dtype=torch.float32), min=1e-6)  # [num_query, num_frame]
+            #
+            # instance_pixel_scores = torch.mean(inst_hcv_crs_frms / inst_hcm_num_crs_frms, dim=1)  # [num_query, 1]
+            # instance_pixel_scores = torch.stack(
+            #     [instance_pixel_scores] * self.sem_seg_head.num_classes, dim=1
+            # ).squeeze(-1)  # [num_query, num_cls]
+            # #######################################################################################
+
+            # ################ QAM mask, PIXEL_LOGITS_SCORE_TH = 0.25(QANet default) ################
+            # high confidence mask (hcm)
+            inst_hcm_crs_frms = (mask_logits >= (1 - PIXEL_LOGITS_SCORE_TH)).to(dtype=torch.bool)  # [num_query, num_frame, H, W]
+            # low confidence mask (lcm)
+            inst_lcm_crs_frms = (mask_logits >= PIXEL_LOGITS_SCORE_TH).to(dtype=torch.bool)  # [num_query, num_frame, H, W]
+            inst_hcm_num_crs_frms = torch.sum(inst_hcm_crs_frms, dim=[2, 3]).to(dtype=torch.float32)  # [num_query, num_frame]
+            inst_lcm_num_crs_frms = torch.clamp(
+                torch.sum(inst_lcm_crs_frms, dim=[2, 3]
+            ).to(dtype=torch.float32), min=1e-6)  # [num_query, num_frame]
+
+            instance_pixel_scores = torch.mean(inst_hcm_num_crs_frms / inst_lcm_num_crs_frms, dim=1)  # [num_query, 1]
+            instance_pixel_scores = torch.stack(
+                [instance_pixel_scores] * self.sem_seg_head.num_classes, dim=1
+            ).squeeze(-1)  # [num_query, num_cls]
+            # #######################################################################################
+
+            # ############ SOLO/Mask2Former, PIXEL_LOGITS_SCORE_TH = 0.5 (QANet default) ############
+            # inst_hcm_crs_frms = (pred_masks > 0).float()  # [num_query, num_frame, H, W]
+            # instance_pixel_scores = torch.sum(mask_logits * inst_hcm_crs_frms, dim=[2, 3]) / \
+            #                         (torch.sum(inst_hcm_crs_frms, dim=[2, 3]) + 1e-6)  # [num_query, num_frame]
+            #
+            # instance_pixel_scores = torch.stack(
+            #     [torch.mean(instance_pixel_scores, dim=1)] * self.sem_seg_head.num_classes, dim=1
+            # ).squeeze(-1)  # [num_query, num_cls]
+            # #######################################################################################
+
+
+            scores = torch.pow(scores * instance_pixel_scores, 1/2)
+
+
+
             # keep top-10 predictions
             scores_per_image, topk_indices = scores.flatten(0, 1).topk(10, sorted=False)
             labels_per_image = labels[topk_indices]
