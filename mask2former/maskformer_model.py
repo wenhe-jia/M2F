@@ -287,6 +287,10 @@ class MaskFormer(nn.Module):
         scores, labels = F.softmax(mask_cls, dim=-1).max(-1)
         mask_pred = mask_pred.sigmoid()
 
+        # mask_scores_per_image = (mask_pred.flatten(1) * (mask_pred > 0).float().flatten(1)).sum(1) / (
+        #             (mask_pred > 0).float().flatten(1).sum(1) + 1e-6)
+        # scores = scores * mask_scores_per_image
+
         keep = labels.ne(self.sem_seg_head.num_classes) & (scores > self.object_mask_threshold)
         cur_scores = scores[keep]
         cur_classes = labels[keep]
@@ -374,7 +378,49 @@ class MaskFormer(nn.Module):
         # result.pred_boxes = BitMasks(mask_pred > 0).get_bounding_boxes()
 
         # calculate average mask prob
-        mask_scores_per_image = (mask_pred.sigmoid().flatten(1) * result.pred_masks.flatten(1)).sum(1) / (result.pred_masks.flatten(1).sum(1) + 1e-6)
+
+        # ++++++++++++ SOLO/Mask2Former, PIXEL_LOGITS_SCORE_TH = 0.5 (QANet default) ++++++++++++
+        # mask_scores_per_image = (mask_pred.sigmoid().flatten(1) * result.pred_masks.flatten(1)).sum(1) / \
+        #                         (result.pred_masks.flatten(1).sum(1) + 1e-6)
+        #
+        # result.scores = scores_per_image * mask_scores_per_image
+        # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+        # +++++++++++++++++++++++++++++++++++++++++ QAM +++++++++++++++++++++++++++++++++++++++++
+        mask_logits = mask_pred.sigmoid()  # [num_query, H, W]
+        PIXEL_LOGITS_SCORE_TH = 0.25
+
+        # ---------------- QAM mask, PIXEL_LOGITS_SCORE_TH = 0.25(QANet default) ----------------
+        # high confidence mask (hcm)
+        inst_hcm = (mask_logits >= (1 - PIXEL_LOGITS_SCORE_TH)).to(
+            dtype=torch.bool)  # [num_query, num_frame, H, W]
+        # low confidence mask (lcm)
+        inst_lcm = (mask_logits >= PIXEL_LOGITS_SCORE_TH).to(dtype=torch.bool)  # [num_query, num_frame, H, W]
+        inst_hcm_num = torch.sum(inst_hcm, dim=[1, 2]).to(
+            dtype=torch.float32)  # [num_query]
+        inst_lcm_num = torch.clamp(
+            torch.sum(inst_lcm, dim=[1, 2]
+                      ).to(dtype=torch.float32), min=1e-6)  # [num_query]
+
+        mask_scores_per_image = inst_hcm_num / inst_lcm_num  # [num_query]
+
+
+        # --------------- QAM parsing, PIXEL_LOGITS_SCORE_TH = 0.2(QANet default) ---------------
+        # # high confidence mask (hcm)
+        # inst_hcm = (mask_logits > PIXEL_LOGITS_SCORE_TH).to(dtype=torch.bool)  # [num_query, num_frame, H, W]
+        #
+        # # high confidence value (hcv)
+        # inst_hcv = torch.sum(mask_logits * inst_hcm, dim=[1, 2]).to(dtype=torch.float32)  # [num_query]
+        # inst_hcm_num = torch.clamp(
+        #     torch.sum(inst_hcm, dim=[1, 2]
+        # ).to(dtype=torch.float32), min=1e-6)  # [num_query]
+        #
+        # mask_scores_per_image = inst_hcv / inst_hcm_num  # [num_query]
+
+
         result.scores = scores_per_image * mask_scores_per_image
+        # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+        # result.scores = scores_per_image
         result.pred_classes = labels_per_image
         return result
